@@ -13,10 +13,10 @@ import (
 )
 
 func main() {
-	chunkSize := flag.Int("c", 10, "chunk size (unit MB)")
-	serverUrl := flag.String("u", "", "server upload url")
-	filePath := flag.String("f", "", "upload file path")
-	port := flag.Int("p", 0, "server listening port")
+	chunkSize := flag.Int("c", 10, "chunk size  for client, unit MB")
+	serverUrl := flag.String("u", "", "server upload url for client to connect to")
+	filePath := flag.String("f", "", "upload file path for client")
+	port := flag.Int("p", 0, "listening port for server")
 	flag.Parse()
 
 	if *port > 0 {
