@@ -22,14 +22,13 @@ func main() {
 	flag.Parse()
 
 	if *port > 0 {
-		bearerToken := ""
 		if *pBearerToken == "auto" {
-			bearerToken = goup.BearerTokenGenerate()
-			log.Printf("Bearer token %s generated", bearerToken)
+			*pBearerToken = goup.BearerTokenGenerate()
+			log.Printf("Bearer token %s generated", *pBearerToken)
 		}
 
 		goup.InitServer()
-		http.HandleFunc("/", goup.Bearer(bearerToken, goup.UploadHandle))
+		http.HandleFunc("/", goup.Bearer(*pBearerToken, goup.UploadHandle))
 		log.Printf("Listening on %d", *port)
 		http.ListenAndServe(fmt.Sprintf(":%d", *port), nil)
 		return
