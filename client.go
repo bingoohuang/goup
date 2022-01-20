@@ -36,14 +36,10 @@ type UploadStatus struct {
 }
 
 // New creates new instance of GoUpload Client
-func New(url, filePath, rename string, client *http.Client, chunkSize uint64, bearer string) *GoUpload {
+func New(url, filePath, rename string, client *http.Client, chunkSize uint64, bearer string) (*GoUpload, error) {
 	fileName := rename
 	if fileName == "" {
 		fileName = filepath.Base(filePath)
-	}
-
-	if bearer != "" {
-		bearer = bearerPrefix + bearer
 	}
 
 	g := &GoUpload{
@@ -53,56 +49,81 @@ func New(url, filePath, rename string, client *http.Client, chunkSize uint64, be
 		contentDisposition: mime.FormatMediaType("attachment", map[string]string{"filename": fileName}),
 		ID:                 generateSessionID(),
 		chunkSize:          chunkSize,
-		bearer:             bearer,
+		bearer:             bearerPrefix + bearer,
 	}
-	g.init()
+	if err := g.init(); err != nil {
+		return nil, err
+	}
 
-	return g
+	return g, nil
 }
 
 // Init method initializes upload
-func (c *GoUpload) init() {
+func (c *GoUpload) init() error {
 	fileStat, err := os.Stat(c.filePath)
-	checkError("stat %s error: %v", c.filePath, err)
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", c.filePath, err)
+	}
 
 	c.Status.Size = uint64(fileStat.Size())
 	c.Status.Parts = uint64(math.Ceil(float64(c.Status.Size) / float64(c.chunkSize)))
 
 	c.file, err = os.Open(c.filePath)
-	checkError("stat %s error: %v", c.filePath, err)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", c.filePath, err)
+	}
 	c.wg.Add(1)
 
-	go c.upload()
+	go func() {
+		defer Close(c.file)
+		defer c.wg.Done()
+
+		if err := c.upload(); err != nil {
+			log.Printf("upload error: %v", err)
+		}
+	}()
+	return nil
 }
 
-func (c *GoUpload) upload() {
-	defer c.file.Close()
-	defer c.wg.Done()
-
+func (c *GoUpload) upload() error {
 	for i := uint64(0); i < c.Status.Parts; i++ {
-		c.uploadChunk(i)
+		if err := c.uploadChunk(i); err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
-func (c *GoUpload) uploadChunk(i uint64) {
+func (c *GoUpload) uploadChunk(i uint64) error {
 	partSize := min(c.chunkSize, c.Status.Size-i*c.chunkSize)
 	if partSize <= 0 {
-		return
+		return nil
 	}
 
 	partBuffer := make([]byte, partSize)
 	n, err := c.file.Read(partBuffer)
-	checkError("read %s error: %v", c.file.Name(), err)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", c.file.Name(), err)
+	}
+
 	if uint64(n) != partSize {
-		log.Fatalf("read n %d, should be %d", n, partSize)
+		return fmt.Errorf("read n %d, should be %d", n, partSize)
 	}
 
 	contentRange := generateContentRange(i, c.chunkSize, partSize, c.Status.Size)
 	responseBody, err := c.chunkUpload(partBuffer, c.url, c.ID, contentRange)
-	checkError("chunk %d upload error: %v", i+1, err)
+	if err != nil {
+		return fmt.Errorf("chunk %d upload: %w", i+1, err)
+	}
 
-	c.Status.SizeTransferred = parseBody(responseBody)
+	c.Status.SizeTransferred, err = parseBodyAsSizeTransferred(responseBody)
+	if err != nil {
+		return fmt.Errorf("parse body as size transferred %s: %w", responseBody, err)
+	}
+
 	c.Status.PartsTransferred = i + 1
+	return nil
 }
 
 func min(a, b uint64) uint64 {
@@ -121,14 +142,12 @@ func (c *GoUpload) Wait() {
 func (c *GoUpload) chunkUpload(part []byte, url, sessionID, contentRange string) (string, error) {
 	r0, err := http.NewRequest(http.MethodGet, url, nil)
 
-	if c.bearer != "" {
-		r0.Header.Add("Authorization", c.bearer)
-	}
-	r0.Header.Add("Content-Range", contentRange)
-	r0.Header.Add("Content-Disposition", c.contentDisposition)
-	r0.Header.Add("Session-ID", sessionID)
+	r0.Header.Add(Authorization, c.bearer)
+	r0.Header.Add(ContentRange, contentRange)
+	r0.Header.Add(ContentDisposition, c.contentDisposition)
+	r0.Header.Add(SessionID, sessionID)
 	sum := checksum(part)
-	r0.Header.Add("Content-Sha256", sum)
+	r0.Header.Add(ContentSha256, sum)
 	rr0, err := c.client.Do(r0)
 	if err != nil {
 		return "", err
@@ -145,18 +164,17 @@ func (c *GoUpload) chunkUpload(part []byte, url, sessionID, contentRange string)
 	if err != nil {
 		return "", err
 	}
-	if c.bearer != "" {
-		r.Header.Add("Authorization", c.bearer)
-	}
-	r.Header.Add("Content-Type", "application/octet-stream")
-	r.Header.Add("Content-Disposition", c.contentDisposition)
-	r.Header.Add("Content-Range", contentRange)
-	r.Header.Add("Session-ID", sessionID)
+
+	r.Header.Add(Authorization, c.bearer)
+	r.Header.Add(ContentType, "application/octet-stream")
+	r.Header.Add(ContentDisposition, c.contentDisposition)
+	r.Header.Add(ContentRange, contentRange)
+	r.Header.Add(SessionID, sessionID)
 	rr, err := c.client.Do(r)
 	if err != nil {
 		return "", err
 	}
-	defer rr.Body.Close()
+	defer Close(rr.Body)
 
 	body, err := ioutil.ReadAll(rr.Body)
 	if err != nil {

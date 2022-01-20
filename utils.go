@@ -5,19 +5,27 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strconv"
 	"strings"
 )
 
-func checkError(format string, v ...interface{}) {
-	if len(v) > 0 && v[len(v)-1] == nil {
-		return
-	}
-
-	log.Fatalf(format, v...)
-}
+const (
+	// SessionID is the header name for Session-ID
+	SessionID = "Session-ID"
+	// Authorization is the header name for Authorization
+	Authorization = "Authorization"
+	// ContentRange is the header name for Content-Range
+	ContentRange = "Content-Range"
+	// ContentDisposition is header name for Content-Disposition
+	ContentDisposition = "Content-Disposition"
+	// ContentType is the header name for Content-Type
+	ContentType = "Content-Type"
+	// ContentSha256 is the header name for Content-Sha256
+	ContentSha256 = "Content-Sha256"
+)
 
 func generateSessionID() string {
 	b := make([]byte, 8)
@@ -55,12 +63,10 @@ func checksum(part []byte) string {
 	return base64.RawURLEncoding.EncodeToString(hash.Sum(nil))
 }
 
-func parseBody(body string) uint64 {
+func parseBodyAsSizeTransferred(body string) (uint64, error) {
 	fromTo := strings.Split(body, "/")[0]
 	split := strings.Split(fromTo, "-")
-	partTo, err := strconv.ParseUint(split[1], 10, 64)
-	checkError("parse int %s error: %v", split[1], err)
-	return partTo
+	return strconv.ParseUint(split[1], 10, 64)
 }
 
 func fileNotExists(filePath string) bool {
@@ -68,9 +74,16 @@ func fileNotExists(filePath string) bool {
 	return os.IsNotExist(err)
 }
 
-func ensureDir(dirPath string) {
+func ensureDir(dirPath string) error {
 	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-		err := os.MkdirAll(dirPath, os.ModePerm)
-		checkError("mkdir %s error: %v", dirPath, err)
+		return os.MkdirAll(dirPath, os.ModePerm)
+	}
+	return nil
+}
+
+// Close closes the io.Closer and log print if error occurs.
+func Close(c io.Closer) {
+	if err := c.Close(); err != nil {
+		log.Printf("close error: %v", err)
 	}
 }

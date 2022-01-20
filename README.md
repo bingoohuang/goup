@@ -13,18 +13,14 @@ program restarting either locally or to the server.
 ```shell
 $ goup -h                                                       
 Usage of goup:
-  -b string
-        bearer token for client or server, auto for server to generate a random one
-  -c int
-        chunk size  for client, unit MB (default 10)
-  -f string
-        upload file path for client
-  -p int
-        listening port for server
-  -r string
-        rename to another filename
-  -u string
-        server upload url for client to connect to
+  -b string bearer token for client or server, auto for server to generate a random one
+  -c int chunk size  for client, unit MB (default 10)
+  -f string upload file path for client
+  -p int listening port for server
+  -r string rename to another filename
+  -u string server upload url for client to connect to
+  -v bool show version
+  -init bool create init ctl shell script
 ```
 
 1. Installation `go install https://github.com/bingoohuang/goup`
@@ -44,6 +40,11 @@ $ goup -p 2110
 2022/01/20 17:40:47 recieved file 246.png with sessionID 46CB3E789B10DDB5, range bytes 73400320-83886080/96894303
 2022/01/20 17:40:47 recieved file 246.png with sessionID 46CB3E789B10DDB5, range bytes 83886080-94371840/96894303
 2022/01/20 17:40:47 recieved file 246.png with sessionID 46CB3E789B10DDB5, range bytes 94371840-96894303/96894303
+
+$ md5sum .goup-files/246.png 
+5849c383ab841e539673d50a49c3f39a  .goup-files/aDrive.dmg
+$ sha256sum .goup-files/246.png
+32677ca3a5b19ee5590a75d423b3fc2d754bd76900d50c26e0525681985189f8  .goup-files/aDrive.dmg
 ```
 
 ```sh
@@ -58,6 +59,10 @@ $ goup -u http://127.0.0.1:2110/ -f 246.png
 2022/01/20 17:44:21 Upload 4739FE47D18ADF7F completed
 $ diff -s /Users/bingoobjca/Downloads/goup/.goup-files/246.png 246.png
 Files /Users/bingoobjca/Downloads/goup/.goup-files/246.png and 246.png are identical
+$ md5 246.png
+MD5 (aDrive.dmg) = 5849c383ab841e539673d50a49c3f39a
+$ sha256sum 246.png
+32677ca3a5b19ee5590a75d423b3fc2d754bd76900d50c26e0525681985189f8  246.png
 ```
 
 As you can see, even if you terminate the client uploading, you can resume uploading from last breakpoint.

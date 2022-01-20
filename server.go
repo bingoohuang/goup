@@ -22,8 +22,8 @@ var ServerFileStorage = fileStorage{
 }
 
 // InitServer initializes the server.
-func InitServer() {
-	ensureDir(ServerFileStorage.Path)
+func InitServer() error {
+	return ensureDir(ServerFileStorage.Path)
 }
 
 // UploadHandle is main request/response handler for HTTP server.
@@ -37,7 +37,7 @@ func UploadHandle(w http.ResponseWriter, r *http.Request) {
 
 func doUploadHandle(w http.ResponseWriter, r *http.Request) error {
 	header := r.Header.Get
-	contentRange := header("Content-Range")
+	contentRange := header(ContentRange)
 	if contentRange == "" {
 		return fmt.Errorf("empty contentRange")
 	}
@@ -46,14 +46,14 @@ func doUploadHandle(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return fmt.Errorf("parse contentRange %s error: %w", contentRange, err)
 	}
-	_, params, err := mime.ParseMediaType(header("Content-Disposition"))
+	_, params, err := mime.ParseMediaType(header(ContentDisposition))
 	if err != nil {
 		return fmt.Errorf("parse Content-Disposition error: %w", err)
 	}
 
 	filename := params["filename"]
 	fullpath := filepath.Join(ServerFileStorage.Path, filename)
-	contentSha256 := header("Content-Sha256")
+	contentSha256 := header(ContentSha256)
 	if r.Method == http.MethodGet && contentSha256 != "" {
 		if old := readChecksum(fullpath, partFrom, partTo); old == contentSha256 {
 			w.WriteHeader(http.StatusNotModified)
@@ -70,7 +70,7 @@ func doUploadHandle(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return fmt.Errorf("open file %s error: %w", fullpath, err)
 	}
-	defer f.Close()
+	defer Close(f)
 
 	if partFrom == 0 {
 		if err := f.Truncate(totalSize); err != nil {
@@ -78,8 +78,7 @@ func doUploadHandle(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	sessionID := header("Session-ID")
-
+	sessionID := header(SessionID)
 	if _, err := f.Seek(partFrom, io.SeekStart); err != nil {
 		return fmt.Errorf("seek file %s with pot %d error: %w", f.Name(), partFrom, err)
 	}
@@ -95,7 +94,7 @@ func doUploadHandle(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("write file %s error: %w", fullpath, err)
 	}
 
-	log.Printf("recieved file %s with sessionID %s, range %s", filename, sessionID, contentRange)
+	log.Printf("recieved file %s with session %s, range %s", filename, sessionID, contentRange)
 	return nil
 }
 
@@ -109,7 +108,7 @@ func readChecksum(fullpath string, from, to int64) string {
 		log.Printf("failed to open file %s,error: %v", fullpath, err)
 		return ""
 	}
-	defer f.Close()
+	defer Close(f)
 
 	if _, err := f.Seek(from, io.SeekStart); err != nil {
 		log.Printf("failed to see file %s to %d ,error: %v", fullpath, from, err)

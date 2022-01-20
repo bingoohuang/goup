@@ -3,3 +3,4 @@ dist/
 files/
 .DS_Store
 .goup*
+/ctl

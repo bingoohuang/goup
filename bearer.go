@@ -18,7 +18,7 @@ func Bearer(token string, handle http.HandlerFunc) http.HandlerFunc {
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization")
+		auth := r.Header.Get(Authorization)
 		if SecureCompare(auth, bearerPrefix+token) {
 			handle(w, r)
 		} else {

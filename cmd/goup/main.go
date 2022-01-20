@@ -1,40 +1,71 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/bingoohuang/gg/pkg/flagparse"
+	"github.com/bingoohuang/gg/pkg/v"
+
 	"github.com/bingoohuang/goup"
 	"github.com/cheggaaa/pb/v3"
 )
 
-func main() {
-	chunkSize := flag.Int("c", 10, "chunk size  for client, unit MB")
-	serverUrl := flag.String("u", "", "server upload url for client to connect to")
-	filePath := flag.String("f", "", "upload file path for client")
-	rename := flag.String("r", "", "rename to another filename")
-	port := flag.Int("p", 0, "listening port for server")
-	pBearerToken := flag.String("b", "", "bearer token for client or server, auto for server to generate a random one")
-	flag.Parse()
+type Arg struct {
+	ChunkSize   int    `flag:",c" val:"10"`
+	ServerUrl   string `flag:",u"`
+	FilePath    string `flag:",f"`
+	Rename      string `flag:",r"`
+	Port        int    `flag:",p"`
+	BearerToken string `flag:",b"`
+	Version     bool   `flag:",v"`
+	Init        bool
+}
 
-	if *port > 0 {
-		if *pBearerToken == "auto" {
-			*pBearerToken = goup.BearerTokenGenerate()
-			log.Printf("Bearer token %s generated", *pBearerToken)
+// Usage is optional for customized show.
+func (a Arg) Usage() string {
+	return fmt.Sprintf(`
+Usage of goup:
+  -b string bearer token for client or server, auto for server to generate a random one
+  -c int chunk size  for client, unit MB (default 10)
+  -f string upload file path for client
+  -p int listening port for server
+  -r string rename to another filename
+  -u string server upload url for client to connect to
+  -v bool show version
+  -init bool create init ctl shell script`)
+}
+
+// VersionInfo is optional for customized version.
+func (a Arg) VersionInfo() string { return v.Version() }
+
+func main() {
+	c := &Arg{}
+	flagparse.Parse(c)
+	if c.Port > 0 {
+		if c.BearerToken == "auto" {
+			c.BearerToken = goup.BearerTokenGenerate()
+			log.Printf("Bearer token %s generated", c.BearerToken)
 		}
 
-		goup.InitServer()
-		http.HandleFunc("/", goup.Bearer(*pBearerToken, goup.UploadHandle))
-		log.Printf("Listening on %d", *port)
-		http.ListenAndServe(fmt.Sprintf(":%d", *port), nil)
+		if err := goup.InitServer(); err != nil {
+			log.Fatalf("init goup server: %v", err)
+		}
+		http.HandleFunc("/", goup.Bearer(c.BearerToken, goup.UploadHandle))
+		log.Printf("Listening on %d", c.Port)
+		if err := http.ListenAndServe(fmt.Sprintf(":%d", c.Port), nil); err != nil {
+			log.Printf("listen: %v", err)
+		}
 		return
 	}
 
-	g := goup.New(*serverUrl, *filePath, *rename, &http.Client{}, uint64((*chunkSize)*(1<<20)), *pBearerToken)
+	g, err := goup.New(c.ServerUrl, c.FilePath, c.Rename, &http.Client{}, uint64((c.ChunkSize)*(1<<20)), c.BearerToken)
+	if err != nil {
+		log.Fatalf("new goup client: %v", err)
+	}
 	bar := pb.New(int(g.Status.Size))
 	bar.SetRefreshRate(time.Millisecond)
 	bar.Set(pb.Bytes, true)
