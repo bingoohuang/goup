@@ -45,6 +45,8 @@ func (a Arg) VersionInfo() string { return v.Version() }
 func main() {
 	c := &Arg{}
 	flagparse.Parse(c)
+	chunkSize := uint64((c.ChunkSize) * (1 << 20))
+
 	if c.Port > 0 {
 		if c.BearerToken == "auto" {
 			c.BearerToken = goup.BearerTokenGenerate()
@@ -54,7 +56,7 @@ func main() {
 		if err := goup.InitServer(); err != nil {
 			log.Fatalf("init goup server: %v", err)
 		}
-		http.HandleFunc("/", goup.Bearer(c.BearerToken, goup.UploadHandle))
+		http.HandleFunc("/", goup.Bearer(c.BearerToken, goup.ServerHandle(chunkSize)))
 		log.Printf("Listening on %d", c.Port)
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", c.Port), nil); err != nil {
 			log.Printf("listen: %v", err)
@@ -62,7 +64,7 @@ func main() {
 		return
 	}
 
-	g, err := goup.New(c.ServerUrl, c.FilePath, c.Rename, &http.Client{}, uint64((c.ChunkSize)*(1<<20)), c.BearerToken)
+	g, err := goup.New(c.ServerUrl, c.FilePath, c.Rename, &http.Client{}, chunkSize, c.BearerToken)
 	if err != nil {
 		log.Fatalf("new goup client: %v", err)
 	}

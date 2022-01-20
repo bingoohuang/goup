@@ -96,7 +96,7 @@ func (c *GoUpload) upload() error {
 }
 
 func (c *GoUpload) uploadChunk(i uint64) error {
-	partSize := min(c.chunkSize, c.Status.Size-i*c.chunkSize)
+	partSize := GetPartSize(c.Status.Size, c.chunkSize, i)
 	if partSize <= 0 {
 		return nil
 	}
@@ -142,12 +142,12 @@ func (c *GoUpload) Wait() {
 func (c *GoUpload) chunkUpload(part []byte, url, sessionID, contentRange string) (string, error) {
 	r0, err := http.NewRequest(http.MethodGet, url, nil)
 
-	r0.Header.Add(Authorization, c.bearer)
-	r0.Header.Add(ContentRange, contentRange)
-	r0.Header.Add(ContentDisposition, c.contentDisposition)
-	r0.Header.Add(SessionID, sessionID)
+	r0.Header.Set(Authorization, c.bearer)
+	r0.Header.Set(ContentRange, contentRange)
+	r0.Header.Set(ContentDisposition, c.contentDisposition)
+	r0.Header.Set(SessionID, sessionID)
 	sum := checksum(part)
-	r0.Header.Add(ContentSha256, sum)
+	r0.Header.Set(ContentSha256, sum)
 	rr0, err := c.client.Do(r0)
 	if err != nil {
 		return "", err
@@ -165,11 +165,11 @@ func (c *GoUpload) chunkUpload(part []byte, url, sessionID, contentRange string)
 		return "", err
 	}
 
-	r.Header.Add(Authorization, c.bearer)
-	r.Header.Add(ContentType, "application/octet-stream")
-	r.Header.Add(ContentDisposition, c.contentDisposition)
-	r.Header.Add(ContentRange, contentRange)
-	r.Header.Add(SessionID, sessionID)
+	r.Header.Set(Authorization, c.bearer)
+	r.Header.Set(ContentType, "application/octet-stream")
+	r.Header.Set(ContentDisposition, c.contentDisposition)
+	r.Header.Set(ContentRange, contentRange)
+	r.Header.Set(SessionID, sessionID)
 	rr, err := c.client.Do(r)
 	if err != nil {
 		return "", err

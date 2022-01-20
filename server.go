@@ -26,18 +26,81 @@ func InitServer() error {
 	return ensureDir(ServerFileStorage.Path)
 }
 
-// UploadHandle is main request/response handler for HTTP server.
-func UploadHandle(w http.ResponseWriter, r *http.Request) {
-	if err := doUploadHandle(w, r); err != nil {
-		log.Printf("uploading error: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(err.Error()))
+// ServerHandle is main request/response handler for HTTP server.
+func ServerHandle(chunkSize uint64) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/":
+			if err := doUploadHandle(w, r); err != nil {
+				log.Printf("uploading error: %v", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(err.Error()))
+			}
+		case r.Method == http.MethodGet:
+			// may be downloads
+			fullpath := filepath.Join(ServerFileStorage.Path, "."+r.URL.Path)
+			stat, err := os.Stat(fullpath)
+			if os.IsNotExist(err) {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+
+			contentRange := r.Header.Get(ContentRange)
+			if contentRange == "" {
+				totalSize := uint64(stat.Size())
+				partSize := GetPartSize(totalSize, chunkSize, 0)
+				contentRange = generateContentRange(0, chunkSize, partSize, totalSize)
+				w.Header().Set(ContentRange, contentRange)
+				sum := readChecksum(fullpath, 0, int64(partSize))
+				w.Write([]byte(sum))
+				return
+			}
+
+			_, partFrom, partTo, err := parseContentRange(contentRange)
+			if err != nil {
+				log.Printf("parse contentRange %s error: %v", contentRange, err)
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+
+			if contentSha256 := r.Header.Get(ContentSha256); contentSha256 != "" {
+				if old := readChecksum(fullpath, partFrom, partTo); old == contentSha256 {
+					w.WriteHeader(http.StatusNotModified)
+				}
+			}
+
+			f, err := os.OpenFile(fullpath, os.O_RDONLY, 0o755)
+			if err != nil {
+				log.Printf("open file %s error: %v", fullpath, err)
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+			defer Close(f)
+
+			if _, err := f.Seek(partFrom, io.SeekStart); err != nil {
+				log.Printf("seek file %s to %d error: %v", fullpath, partFrom, err)
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+			partBuffer := make([]byte, partTo-partFrom)
+			if n, err := f.Read(partBuffer); err != nil {
+				log.Printf("read file %s error: %v", fullpath, err)
+				w.WriteHeader(http.StatusInternalServerError)
+			} else if n < int(partTo-partFrom) {
+				log.Printf("read file %s not enough real %d < expected %d error: %v", fullpath, n, partTo-partFrom, err)
+				w.WriteHeader(http.StatusInternalServerError)
+			} else {
+				w.Header().Set(ContentType, "application/octet-stream")
+				cd := mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(fullpath)})
+				w.Header().Set(ContentDisposition, cd)
+				w.Header().Set(ContentRange, contentRange)
+				w.Write(partBuffer)
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
 	}
 }
 
 func doUploadHandle(w http.ResponseWriter, r *http.Request) error {
-	header := r.Header.Get
-	contentRange := header(ContentRange)
+	contentRange := r.Header.Get(ContentRange)
 	if contentRange == "" {
 		return fmt.Errorf("empty contentRange")
 	}
@@ -46,15 +109,15 @@ func doUploadHandle(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return fmt.Errorf("parse contentRange %s error: %w", contentRange, err)
 	}
-	_, params, err := mime.ParseMediaType(header(ContentDisposition))
+	_, params, err := mime.ParseMediaType(r.Header.Get(ContentDisposition))
 	if err != nil {
 		return fmt.Errorf("parse Content-Disposition error: %w", err)
 	}
 
 	filename := params["filename"]
 	fullpath := filepath.Join(ServerFileStorage.Path, filename)
-	contentSha256 := header(ContentSha256)
-	if r.Method == http.MethodGet && contentSha256 != "" {
+
+	if contentSha256 := r.Header.Get(ContentSha256); r.Method == http.MethodGet && contentSha256 != "" {
 		if old := readChecksum(fullpath, partFrom, partTo); old == contentSha256 {
 			w.WriteHeader(http.StatusNotModified)
 		}
@@ -78,7 +141,7 @@ func doUploadHandle(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	sessionID := header(SessionID)
+	sessionID := r.Header.Get(SessionID)
 	if _, err := f.Seek(partFrom, io.SeekStart); err != nil {
 		return fmt.Errorf("seek file %s with pot %d error: %w", f.Name(), partFrom, err)
 	}

@@ -27,6 +27,11 @@ const (
 	ContentSha256 = "Content-Sha256"
 )
 
+// GetPartSize get the part size of idx-th chunk.
+func GetPartSize(totalSize, chunkSize, idx uint64) uint64 {
+	return min(chunkSize, totalSize-idx*chunkSize)
+}
+
 func generateSessionID() string {
 	b := make([]byte, 8)
 	rand.Read(b)
