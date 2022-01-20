@@ -60,7 +60,9 @@ linux: init
 arm: init
 	GOOS=linux GOARCH=arm64 ${goinstall1}
 	upx ${gobin}/linux_arm64/${app}
-
+win: init
+	GOOS=windows GOARCH=arm64 ${goinstall1}
+	upx ${gobin}/linux_arm64/${app}
 upx:
 	ls -lh ${gobin}/${app}
 	upx ${gobin}/${app}

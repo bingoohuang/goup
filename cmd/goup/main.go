@@ -18,17 +18,24 @@ func main() {
 	filePath := flag.String("f", "", "upload file path for client")
 	rename := flag.String("r", "", "rename to another filename")
 	port := flag.Int("p", 0, "listening port for server")
+	pBearerToken := flag.String("b", "", "bearer token for client or server, auto for server to generate a random one")
 	flag.Parse()
 
 	if *port > 0 {
+		bearerToken := ""
+		if *pBearerToken == "auto" {
+			bearerToken = goup.BearerTokenGenerate()
+			log.Printf("Bearer token %s generated", bearerToken)
+		}
+
 		goup.InitServer()
-		http.HandleFunc("/", goup.UploadHandle)
+		http.HandleFunc("/", goup.Bearer(bearerToken, goup.UploadHandle))
 		log.Printf("Listening on %d", *port)
 		http.ListenAndServe(fmt.Sprintf(":%d", *port), nil)
 		return
 	}
 
-	g := goup.New(*serverUrl, *filePath, *rename, &http.Client{}, uint64((*chunkSize)*(1<<20)))
+	g := goup.New(*serverUrl, *filePath, *rename, &http.Client{}, uint64((*chunkSize)*(1<<20)), *pBearerToken)
 	bar := pb.New(int(g.Status.Size))
 	bar.SetRefreshRate(time.Millisecond)
 	bar.Set(pb.Bytes, true)

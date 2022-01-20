@@ -2,6 +2,7 @@ package goup
 
 import (
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"math"
@@ -23,6 +24,7 @@ type GoUpload struct {
 	Status             UploadStatus
 	wg                 sync.WaitGroup
 	contentDisposition string
+	bearer             string
 }
 
 // UploadStatus holds the data about upload
@@ -34,10 +36,14 @@ type UploadStatus struct {
 }
 
 // New creates new instance of GoUpload Client
-func New(url, filePath, rename string, client *http.Client, chunkSize uint64) *GoUpload {
+func New(url, filePath, rename string, client *http.Client, chunkSize uint64, bearer string) *GoUpload {
 	fileName := rename
 	if fileName == "" {
 		fileName = filepath.Base(filePath)
+	}
+
+	if bearer != "" {
+		bearer = bearerPrefix + bearer
 	}
 
 	g := &GoUpload{
@@ -47,6 +53,7 @@ func New(url, filePath, rename string, client *http.Client, chunkSize uint64) *G
 		contentDisposition: mime.FormatMediaType("attachment", map[string]string{"filename": fileName}),
 		ID:                 generateSessionID(),
 		chunkSize:          chunkSize,
+		bearer:             bearer,
 	}
 	g.init()
 
@@ -114,6 +121,9 @@ func (c *GoUpload) Wait() {
 func (c *GoUpload) chunkUpload(part []byte, url, sessionID, contentRange string) (string, error) {
 	r0, err := http.NewRequest(http.MethodGet, url, nil)
 
+	if c.bearer != "" {
+		r0.Header.Add("Authorization", c.bearer)
+	}
 	r0.Header.Add("Content-Range", contentRange)
 	r0.Header.Add("Content-Disposition", c.contentDisposition)
 	r0.Header.Add("Session-ID", sessionID)
@@ -127,9 +137,16 @@ func (c *GoUpload) chunkUpload(part []byte, url, sessionID, contentRange string)
 		return contentRange, nil
 	}
 
+	if rr0.StatusCode != 200 {
+		return "", fmt.Errorf("bad status code: %d", rr0.StatusCode)
+	}
+
 	r, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(part))
 	if err != nil {
 		return "", err
+	}
+	if c.bearer != "" {
+		r.Header.Add("Authorization", c.bearer)
 	}
 	r.Header.Add("Content-Type", "application/octet-stream")
 	r.Header.Add("Content-Disposition", c.contentDisposition)
@@ -144,6 +161,10 @@ func (c *GoUpload) chunkUpload(part []byte, url, sessionID, contentRange string)
 	body, err := ioutil.ReadAll(rr.Body)
 	if err != nil {
 		return "", err
+	}
+
+	if rr.StatusCode != 200 {
+		return "", fmt.Errorf("bad status code: %d", rr.StatusCode)
 	}
 
 	return string(body), nil

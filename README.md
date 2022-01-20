@@ -10,6 +10,23 @@ program restarting either locally or to the server.
 
 ### Usage
 
+```shell
+$ goup -h                                                       
+Usage of goup:
+  -b string
+        bearer token for client or server, auto for server to generate a random one
+  -c int
+        chunk size  for client, unit MB (default 10)
+  -f string
+        upload file path for client
+  -p int
+        listening port for server
+  -r string
+        rename to another filename
+  -u string
+        server upload url for client to connect to
+```
+
 1. Installation `go install https://github.com/bingoohuang/goup`
 1. At the server, `goup -p 2110`
 2. At the client, `goup -u http://a.b.c:2110/ -f 246.png`
