@@ -23,15 +23,16 @@ const (
 
 // GoUpload structure
 type GoUpload struct {
-	client    *http.Client
-	url       string
-	filePath  string
-	ID        string
-	chunkSize uint64
-	file      *os.File
-	channel   chan stateCode
-	Status    UploadStatus
-	wg        sync.WaitGroup
+	client             *http.Client
+	url                string
+	filePath           string
+	ID                 string
+	chunkSize          uint64
+	file               *os.File
+	channel            chan stateCode
+	Status             UploadStatus
+	wg                 sync.WaitGroup
+	contentDisposition string
 }
 
 // UploadStatus holds the data about upload
@@ -44,12 +45,15 @@ type UploadStatus struct {
 
 // New creates new instance of GoUpload Client
 func New(url, filePath string, client *http.Client, chunkSize uint64) *GoUpload {
+	fileName := filepath.Base(filePath)
+
 	g := &GoUpload{
-		client:    client,
-		url:       url,
-		filePath:  filePath,
-		ID:        generateSessionID(),
-		chunkSize: chunkSize,
+		client:             client,
+		url:                url,
+		filePath:           filePath,
+		contentDisposition: mime.FormatMediaType("attachment", map[string]string{"filename": fileName}),
+		ID:                 generateSessionID(),
+		chunkSize:          chunkSize,
 	}
 	g.init()
 
@@ -127,9 +131,9 @@ func (c *GoUpload) uploadChunk(i uint64) {
 		log.Fatalf("read n %d, should be %d", n, partSize)
 	}
 
-	fileName := filepath.Base(c.filePath)
 	contentRange := generateContentRange(i, c.chunkSize, partSize, c.Status.Size)
-	responseBody, err := httpRequest(c.client, partBuffer, c.url, c.ID, contentRange, fileName)
+	responseBody, err := c.chunkUpload(partBuffer, c.url, c.ID, contentRange)
+	checkError("chunk %d upload error: %v", i+1, err)
 
 	c.Status.SizeTransferred = parseBody(responseBody)
 	c.Status.PartsTransferred = i + 1
@@ -148,18 +152,18 @@ func (c *GoUpload) Wait() {
 	c.wg.Wait()
 }
 
-func httpRequest(client *http.Client, part []byte, url, sessionID, contentRange, fileName string) (string, error) {
+func (c *GoUpload) chunkUpload(part []byte, url, sessionID, contentRange string) (string, error) {
 	r, err := http.NewRequest("POST", url, bytes.NewBuffer(part))
 	if err != nil {
 		return "", err
 	}
 
-	r.Header.Add("Content-Type", "application/octet-stream")
-	r.Header.Add("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": fileName}))
-	r.Header.Add("Content-Range", contentRange)
-	r.Header.Add("Session-ID", sessionID)
-
-	rr, err := client.Do(r)
+	h := r.Header.Add
+	h("Content-Type", "application/octet-stream")
+	h("Content-Disposition", c.contentDisposition)
+	h("Content-Range", contentRange)
+	h("Session-ID", sessionID)
+	rr, err := c.client.Do(r)
 	if err != nil {
 		return "", err
 	}

@@ -79,26 +79,29 @@ func HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	checkError("read body error: %v", err)
 
 	totalSize, partFrom, partTo := parseContentRange(contentRange)
-	u, _ := getUploadFile(sessionID)
-	if partFrom == 0 {
-		w.WriteHeader(http.StatusCreated)
+	u, ok := getUploadFile(sessionID)
+	if partFrom == 0 && ok {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Invalid request, sessionID maybe duplicated."))
+		return
+	}
 
+	if !ok {
+		w.WriteHeader(http.StatusCreated)
 		_, params, err := mime.ParseMediaType(header("Content-Disposition"))
 		checkError("parse Content-Disposition error: %v", err)
-		fileName := params["filename"]
 
 		newFile := FileStorage.TempPath + "/" + sessionID
-
 		f, err := os.OpenFile(newFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o755)
 		checkError("open file %s error: %v", newFile, err)
 
 		u = &uploadFile{
 			file:     f,
-			name:     fileName,
+			name:     params["filename"],
 			tempPath: newFile,
 			size:     totalSize,
+			start:    time.Now(),
 		}
-		u.start = time.Now()
 		saveUploadFile(sessionID, u)
 	} else {
 		w.WriteHeader(http.StatusOK)
@@ -111,18 +114,22 @@ func HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	_, err = u.file.Write(body)
 	checkError("write file %s error: %v", u.file.Name(), err)
 
-	u.file.Sync()
+	err = u.file.Sync()
+	checkError("sync file %s error: %v", u.file.Name(), err)
+
 	u.transferred = partTo
 
-	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
-	w.Header().Set("Connection", "close")
-	w.Header().Set("Range", contentRange)
-	w.Write([]byte(contentRange))
+	h := w.Header().Set
+	h("Content-Length", strconv.Itoa(len(body)))
+	h("Connection", "close")
+	h("Range", contentRange)
+	_, err = w.Write([]byte(contentRange))
+	checkError("write file %s error: %v", u.file.Name(), err)
 
 	if partTo >= totalSize {
 		path := u.moveToPath()
-		log.Printf("recieved file %s to %s with sessionID %s cost %s transferred %d",
-			u.name, path, sessionID, time.Since(u.start), u.transferred)
+		log.Printf("got file %s with sessionID %s cost %s transferred %d",
+			path, sessionID, time.Since(u.start), u.transferred)
 		deleteUploadFile(sessionID)
 	}
 }
