@@ -16,6 +16,7 @@ func main() {
 	chunkSize := flag.Int("c", 10, "chunk size  for client, unit MB")
 	serverUrl := flag.String("u", "", "server upload url for client to connect to")
 	filePath := flag.String("f", "", "upload file path for client")
+	rename := flag.String("r", "", "rename to another filename")
 	port := flag.Int("p", 0, "listening port for server")
 	flag.Parse()
 
@@ -27,8 +28,7 @@ func main() {
 		return
 	}
 
-	g := goup.New(*serverUrl, *filePath, &http.Client{}, uint64((*chunkSize)*(1<<20)))
-
+	g := goup.New(*serverUrl, *filePath, *rename, &http.Client{}, uint64((*chunkSize)*(1<<20)))
 	bar := pb.New(int(g.Status.Size))
 	bar.SetRefreshRate(time.Millisecond)
 	bar.Set(pb.Bytes, true)
@@ -51,7 +51,6 @@ func main() {
 		}
 	}()
 
-	g.Start()
 	g.Wait()
 	wg.Wait()
 }

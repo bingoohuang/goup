@@ -1,142 +1,126 @@
 package goup
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"mime"
 	"net/http"
 	"os"
-	"sync"
-	"time"
+	"path/filepath"
 )
-
-type uploadFile struct {
-	file        *os.File
-	name        string
-	tempPath    string
-	status      time.Time
-	size        int64
-	transferred int64
-	start       time.Time
-}
-
-var (
-	files     = make(map[string]*uploadFile)
-	filesLock sync.Mutex
-)
-
-func deleteUploadFile(sessionID string) {
-	filesLock.Lock()
-	defer filesLock.Unlock()
-
-	delete(files, sessionID)
-}
-
-func saveUploadFile(sessionID string, f *uploadFile) {
-	filesLock.Lock()
-	defer filesLock.Unlock()
-
-	files[sessionID] = f
-}
-
-func getUploadFile(sessionID string) (*uploadFile, bool) {
-	filesLock.Lock()
-	defer filesLock.Unlock()
-
-	f, ok := files[sessionID]
-	return f, ok
-}
 
 type fileStorage struct {
-	Path     string
-	TempPath string
+	Path string
 }
 
 // ServerFileStorage settings.
 // When finished uploading with success files are stored inside Path config.
 // While uploading temporary files are stored inside TempPath directory.
 var ServerFileStorage = fileStorage{
-	Path:     "./.goup-files",
-	TempPath: "./.goup-temp",
+	Path: "./.goup-files",
 }
 
 // InitServer initializes the server.
 func InitServer() {
 	ensureDir(ServerFileStorage.Path)
-	ensureDir(ServerFileStorage.TempPath)
 }
 
 // UploadHandle is main request/response handler for HTTP server.
 func UploadHandle(w http.ResponseWriter, r *http.Request) {
-	header := r.Header.Get
-	sessionID := header("Session-ID")
-	contentRange := header("Content-Range")
-	if r.Method != "POST" || sessionID == "" || contentRange == "" {
+	if err := doUploadHandle(w, r); err != nil {
+		log.Printf("uploading error: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("Invalid request."))
-		return
-	}
-
-	totalSize, partFrom, partTo := parseContentRange(contentRange)
-	u, ok := getUploadFile(sessionID)
-	if partFrom == 0 && ok {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("Invalid request, sessionID maybe duplicated."))
-		return
-	}
-
-	if ok {
-		w.WriteHeader(http.StatusOK)
-		log.Printf("recieved file %s with sessionID %s range %d-%d", u.name, sessionID, partFrom, partTo)
-	} else {
-		w.WriteHeader(http.StatusCreated)
-		_, params, err := mime.ParseMediaType(header("Content-Disposition"))
-		checkError("parse Content-Disposition error: %v", err)
-
-		newFile := ServerFileStorage.TempPath + "/" + sessionID
-		f, err := os.OpenFile(newFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o755)
-		checkError("open file %s error: %v", newFile, err)
-
-		name := params["filename"]
-		u = &uploadFile{
-			file:     f,
-			name:     name,
-			tempPath: newFile,
-			size:     totalSize,
-			start:    time.Now(),
-		}
-		saveUploadFile(sessionID, u)
-		log.Printf("recieved file %s with sessionID %s range %d-%d", name, sessionID, partFrom, partTo)
-	}
-
-	body, err := io.ReadAll(r.Body)
-	checkError("read body error: %v", err)
-	u.status = time.Now()
-	_, err = u.file.Write(body)
-	checkError("write file %s error: %v", u.file.Name(), err)
-	err = u.file.Sync()
-	checkError("sync file %s error: %v", u.file.Name(), err)
-	u.transferred = partTo
-
-	_, err = w.Write([]byte(contentRange))
-	checkError("write file %s error: %v", u.file.Name(), err)
-
-	if partTo >= totalSize {
-		path := u.moveToPath()
-		log.Printf("got file %s with sessionID %s cost %s transferred %d",
-			path, sessionID, time.Since(u.start), u.transferred)
-		deleteUploadFile(sessionID)
+		_, _ = w.Write([]byte(err.Error()))
 	}
 }
 
-func (u *uploadFile) moveToPath() string {
-	u.file.Close()
-	filePath := ServerFileStorage.Path + "/" + u.name
-	if fileExists(filePath) {
-		filePath = ServerFileStorage.Path + "/" + time.Now().Format("20060102150405") + "-" + u.name
+func doUploadHandle(w http.ResponseWriter, r *http.Request) error {
+	header := r.Header.Get
+	contentRange := header("Content-Range")
+	if contentRange == "" {
+		return fmt.Errorf("empty contentRange")
 	}
 
-	err := os.Rename(u.tempPath, filePath)
-	checkError("rename file from %s to %s, error: %v", u.tempPath, filePath, err)
-	return filePath
+	totalSize, partFrom, partTo, err := parseContentRange(contentRange)
+	if err != nil {
+		return fmt.Errorf("parse contentRange %s error: %w", contentRange, err)
+	}
+	_, params, err := mime.ParseMediaType(header("Content-Disposition"))
+	if err != nil {
+		return fmt.Errorf("parse Content-Disposition error: %w", err)
+	}
+
+	filename := params["filename"]
+	fullpath := filepath.Join(ServerFileStorage.Path, filename)
+	contentSha256 := header("Content-Sha256")
+	if r.Method == http.MethodGet && contentSha256 != "" {
+		if old := readChecksum(fullpath, partFrom, partTo); old == contentSha256 {
+			w.WriteHeader(http.StatusNotModified)
+		}
+
+		return nil
+	}
+
+	if r.Method != http.MethodPost {
+		return fmt.Errorf("invalid http method")
+	}
+
+	f, err := os.OpenFile(fullpath, os.O_CREATE|os.O_RDWR, 0o755)
+	if err != nil {
+		return fmt.Errorf("open file %s error: %w", fullpath, err)
+	}
+	defer f.Close()
+
+	if partFrom == 0 {
+		if err := f.Truncate(totalSize); err != nil {
+			return fmt.Errorf("truncate file %s to size %d error: %w", fullpath, totalSize, err)
+		}
+	}
+
+	sessionID := header("Session-ID")
+
+	if _, err := f.Seek(partFrom, io.SeekStart); err != nil {
+		return fmt.Errorf("seek file %s with pot %d error: %w", f.Name(), partFrom, err)
+	}
+	if _, err := io.Copy(f, r.Body); err != nil {
+		return fmt.Errorf("write file %s error: %w", fullpath, err)
+	}
+
+	if err := f.Sync(); err != nil {
+		return fmt.Errorf("sync file %s error: %w", fullpath, err)
+	}
+
+	if _, err := w.Write([]byte(contentRange)); err != nil {
+		return fmt.Errorf("write file %s error: %w", fullpath, err)
+	}
+
+	log.Printf("recieved file %s with sessionID %s, range %s", filename, sessionID, contentRange)
+	return nil
+}
+
+func readChecksum(fullpath string, from, to int64) string {
+	if fileNotExists(fullpath) {
+		return ""
+	}
+
+	f, err := os.OpenFile(fullpath, os.O_RDONLY, 0o755)
+	if err != nil {
+		log.Printf("failed to open file %s,error: %v", fullpath, err)
+		return ""
+	}
+	defer f.Close()
+
+	if _, err := f.Seek(from, io.SeekStart); err != nil {
+		log.Printf("failed to see file %s to %d ,error: %v", fullpath, from, err)
+		return ""
+	}
+
+	buf := make([]byte, to-from)
+	if _, err := f.Read(buf); err != nil {
+		log.Printf("failed to read file %s  ,error: %v", fullpath, err)
+		return ""
+	}
+
+	return checksum(buf)
 }

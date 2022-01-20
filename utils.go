@@ -2,6 +2,8 @@ package goup
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
@@ -28,20 +30,29 @@ func generateContentRange(index, fileChunk, partSize, totalSize uint64) string {
 	return fmt.Sprintf("bytes %d-%d/%d", from, from+partSize, totalSize)
 }
 
-func parseContentRange(contentRange string) (totalSize int64, partFrom int64, partTo int64) {
+func parseContentRange(contentRange string) (totalSize, partFrom, partTo int64, err error) {
 	contentRange = strings.Replace(contentRange, "bytes ", "", -1)
 	fromTo := strings.Split(contentRange, "/")[0]
 	totalSizeStr := strings.Split(contentRange, "/")[1]
-	totalSize, err := strconv.ParseInt(totalSizeStr, 10, 64)
-	checkError("parse int %s error: %v", totalSizeStr, err)
+	totalSize, err = strconv.ParseInt(totalSizeStr, 10, 64)
+	if err != nil {
+		return
+	}
 
 	splitted := strings.Split(fromTo, "-")
 	partFrom, err = strconv.ParseInt(splitted[0], 10, 64)
-	checkError("parse int %s error: %v", splitted[0], err)
-	partTo, err = strconv.ParseInt(splitted[1], 10, 64)
-	checkError("parse int %s error: %v", splitted[1], err)
+	if err != nil {
+		return
+	}
 
-	return totalSize, partFrom, partTo
+	partTo, err = strconv.ParseInt(splitted[1], 10, 64)
+	return
+}
+
+func checksum(part []byte) string {
+	hash := sha256.New()
+	hash.Write(part)
+	return base64.RawURLEncoding.EncodeToString(hash.Sum(nil))
 }
 
 func parseBody(body string) uint64 {
@@ -52,9 +63,9 @@ func parseBody(body string) uint64 {
 	return partTo
 }
 
-func fileExists(filePath string) bool {
+func fileNotExists(filePath string) bool {
 	_, err := os.Stat(filePath)
-	return !os.IsNotExist(err)
+	return os.IsNotExist(err)
 }
 
 func ensureDir(dirPath string) {

@@ -9,16 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
-)
-
-type stateCode int
-
-const (
-	stopped stateCode = iota
-	paused
-	running
 )
 
 // GoUpload structure
@@ -29,7 +20,6 @@ type GoUpload struct {
 	ID                 string
 	chunkSize          uint64
 	file               *os.File
-	channel            chan stateCode
 	Status             UploadStatus
 	wg                 sync.WaitGroup
 	contentDisposition string
@@ -44,8 +34,11 @@ type UploadStatus struct {
 }
 
 // New creates new instance of GoUpload Client
-func New(url, filePath string, client *http.Client, chunkSize uint64) *GoUpload {
-	fileName := filepath.Base(filePath)
+func New(url, filePath, rename string, client *http.Client, chunkSize uint64) *GoUpload {
+	fileName := rename
+	if fileName == "" {
+		fileName = filepath.Base(filePath)
+	}
 
 	g := &GoUpload{
 		client:             client,
@@ -68,7 +61,6 @@ func (c *GoUpload) init() {
 	c.Status.Size = uint64(fileStat.Size())
 	c.Status.Parts = uint64(math.Ceil(float64(c.Status.Size) / float64(c.chunkSize)))
 
-	c.channel = make(chan stateCode, 1)
 	c.file, err = os.Open(c.filePath)
 	checkError("stat %s error: %v", c.filePath, err)
 	c.wg.Add(1)
@@ -76,45 +68,12 @@ func (c *GoUpload) init() {
 	go c.upload()
 }
 
-// Start set upload stateCode to uploading
-func (c *GoUpload) Start() {
-	c.channel <- running
-}
-
-// Pause set upload stateCode to paused
-func (c *GoUpload) Pause() {
-	c.channel <- paused
-}
-
-// Cancel set upload stateCode to stopped
-func (c *GoUpload) Cancel() {
-	c.channel <- stopped
-}
-
 func (c *GoUpload) upload() {
 	defer c.file.Close()
 	defer c.wg.Done()
 
-	state := paused
-
-	for i := uint64(0); i < c.Status.Parts; {
-		select {
-		case state = <-c.channel:
-			switch state {
-			case stopped:
-				return
-			case running:
-			case paused:
-			}
-		default:
-			runtime.Gosched()
-			if state == paused {
-				break
-			}
-
-			c.uploadChunk(i)
-			i++
-		}
+	for i := uint64(0); i < c.Status.Parts; i++ {
+		c.uploadChunk(i)
 	}
 }
 
@@ -153,16 +112,29 @@ func (c *GoUpload) Wait() {
 }
 
 func (c *GoUpload) chunkUpload(part []byte, url, sessionID, contentRange string) (string, error) {
-	r, err := http.NewRequest("POST", url, bytes.NewBuffer(part))
+	r0, err := http.NewRequest(http.MethodGet, url, nil)
+
+	r0.Header.Add("Content-Range", contentRange)
+	r0.Header.Add("Content-Disposition", c.contentDisposition)
+	r0.Header.Add("Session-ID", sessionID)
+	sum := checksum(part)
+	r0.Header.Add("Content-Sha256", sum)
+	rr0, err := c.client.Do(r0)
 	if err != nil {
 		return "", err
 	}
+	if rr0.StatusCode == http.StatusNotModified {
+		return contentRange, nil
+	}
 
-	h := r.Header.Add
-	h("Content-Type", "application/octet-stream")
-	h("Content-Disposition", c.contentDisposition)
-	h("Content-Range", contentRange)
-	h("Session-ID", sessionID)
+	r, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(part))
+	if err != nil {
+		return "", err
+	}
+	r.Header.Add("Content-Type", "application/octet-stream")
+	r.Header.Add("Content-Disposition", c.contentDisposition)
+	r.Header.Add("Content-Range", contentRange)
+	r.Header.Add("Session-ID", sessionID)
 	rr, err := c.client.Do(r)
 	if err != nil {
 		return "", err
