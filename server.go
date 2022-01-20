@@ -121,7 +121,6 @@ func UploadHandle(w http.ResponseWriter, r *http.Request) {
 
 	h := w.Header().Set
 	h("Content-Length", strconv.Itoa(len(body)))
-	h("Connection", "close")
 	h("Range", contentRange)
 	_, err = w.Write([]byte(contentRange))
 	checkError("write file %s error: %v", u.file.Name(), err)
