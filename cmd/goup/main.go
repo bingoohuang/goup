@@ -13,21 +13,21 @@ import (
 )
 
 func main() {
+	chunkSize := flag.Int("c", 10, "chunk size (unit MB)")
 	serverUrl := flag.String("u", "", "server upload url")
 	filePath := flag.String("f", "", "upload file path")
-	isServer := flag.Bool("s", false, "start as server")
+	port := flag.Int("p", 0, "server listening port")
 	flag.Parse()
 
-	if *isServer {
-		http.HandleFunc("/", goup.HTTPHandler)
-		fmt.Println("Listening on :2110")
-		http.ListenAndServe(":2110", nil)
+	if *port > 0 {
+		goup.InitServer()
+		http.HandleFunc("/", goup.UploadHandle)
+		log.Printf("Listening on %d", *port)
+		http.ListenAndServe(fmt.Sprintf(":%d", *port), nil)
 		return
 	}
 
-	httpClient := &http.Client{}
-	const chunkSize = 1 * (1 << 20) // 1MB
-	g := goup.New(*serverUrl, *filePath, httpClient, chunkSize)
+	g := goup.New(*serverUrl, *filePath, &http.Client{}, uint64((*chunkSize)*(1<<20)))
 
 	bar := pb.New(int(g.Status.Size))
 	bar.SetRefreshRate(time.Millisecond)

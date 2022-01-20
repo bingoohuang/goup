@@ -53,19 +53,22 @@ type fileStorage struct {
 	TempPath string
 }
 
-// FileStorage settings.
+// ServerFileStorage settings.
 // When finished uploading with success files are stored inside Path config.
 // While uploading temporary files are stored inside TempPath directory.
-var FileStorage = fileStorage{
-	Path:     "./files",
-	TempPath: ".tmp",
+var ServerFileStorage = fileStorage{
+	Path:     "./.goup-files",
+	TempPath: "./.goup-temp",
 }
 
-// HTTPHandler is main request/response handler for HTTP server.
-func HTTPHandler(w http.ResponseWriter, r *http.Request) {
-	ensureDir(FileStorage.Path)
-	ensureDir(FileStorage.TempPath)
+// InitServer initializes the server.
+func InitServer() {
+	ensureDir(ServerFileStorage.Path)
+	ensureDir(ServerFileStorage.TempPath)
+}
 
+// UploadHandle is main request/response handler for HTTP server.
+func UploadHandle(w http.ResponseWriter, r *http.Request) {
 	header := r.Header.Get
 	sessionID := header("Session-ID")
 	contentRange := header("Content-Range")
@@ -75,9 +78,6 @@ func HTTPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
-	checkError("read body error: %v", err)
-
 	totalSize, partFrom, partTo := parseContentRange(contentRange)
 	u, ok := getUploadFile(sessionID)
 	if partFrom == 0 && ok {
@@ -86,37 +86,37 @@ func HTTPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !ok {
+	if ok {
+		w.WriteHeader(http.StatusOK)
+		log.Printf("recieved file %s with sessionID %s range %d-%d", u.name, sessionID, partFrom, partTo)
+	} else {
 		w.WriteHeader(http.StatusCreated)
 		_, params, err := mime.ParseMediaType(header("Content-Disposition"))
 		checkError("parse Content-Disposition error: %v", err)
 
-		newFile := FileStorage.TempPath + "/" + sessionID
+		newFile := ServerFileStorage.TempPath + "/" + sessionID
 		f, err := os.OpenFile(newFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o755)
 		checkError("open file %s error: %v", newFile, err)
 
+		name := params["filename"]
 		u = &uploadFile{
 			file:     f,
-			name:     params["filename"],
+			name:     name,
 			tempPath: newFile,
 			size:     totalSize,
 			start:    time.Now(),
 		}
 		saveUploadFile(sessionID, u)
-	} else {
-		w.WriteHeader(http.StatusOK)
-		if time.Since(u.status) > 10*time.Second {
-			log.Printf("recieved file %s with sessionID %s transferred %d", u.name, sessionID, u.transferred)
-		}
+		log.Printf("recieved file %s with sessionID %s range %d-%d", name, sessionID, partFrom, partTo)
 	}
 
+	body, err := io.ReadAll(r.Body)
+	checkError("read body error: %v", err)
 	u.status = time.Now()
 	_, err = u.file.Write(body)
 	checkError("write file %s error: %v", u.file.Name(), err)
-
 	err = u.file.Sync()
 	checkError("sync file %s error: %v", u.file.Name(), err)
-
 	u.transferred = partTo
 
 	h := w.Header().Set
@@ -136,9 +136,9 @@ func HTTPHandler(w http.ResponseWriter, r *http.Request) {
 
 func (u *uploadFile) moveToPath() string {
 	u.file.Close()
-	filePath := FileStorage.Path + "/" + u.name
+	filePath := ServerFileStorage.Path + "/" + u.name
 	if fileExists(filePath) {
-		filePath = FileStorage.Path + "/" + time.Now().Format("20060102150405") + "-" + u.name
+		filePath = ServerFileStorage.Path + "/" + time.Now().Format("20060102150405") + "-" + u.name
 	}
 
 	err := os.Rename(u.tempPath, filePath)
