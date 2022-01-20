@@ -6,7 +6,6 @@ import (
 	"mime"
 	"net/http"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -119,9 +118,6 @@ func UploadHandle(w http.ResponseWriter, r *http.Request) {
 	checkError("sync file %s error: %v", u.file.Name(), err)
 	u.transferred = partTo
 
-	h := w.Header().Set
-	h("Content-Length", strconv.Itoa(len(body)))
-	h("Range", contentRange)
 	_, err = w.Write([]byte(contentRange))
 	checkError("write file %s error: %v", u.file.Name(), err)
 
