@@ -1,8 +1,8 @@
-# go-resumable
+# goup
 
-It's a Go library providing multiple simultaneous and resumable uploads.
+It's a Go library providing multiple simultaneous and resume-able uploads.
 
-Library is designed to introduce fault-tolerance into the upload of large files throught HTTP.
+Library is designed to introduce fault-tolerance into the upload of large files through HTTP.
 This is done by splitting each file into small chunks; whenever the upload of a chunk fails, uploading is retried until the procedure completes.
 This allows uploads to automatically resume uploading after a network connection is lost either locally or to the server.
 Additionally, it allows users to pause, resume and even recover uploads without losing state.

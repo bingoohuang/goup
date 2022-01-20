@@ -59,14 +59,14 @@ func New(url, filePath string, client *http.Client, chunkSize uint64) *GoUpload 
 // Init method initializes upload
 func (c *GoUpload) init() {
 	fileStat, err := os.Stat(c.filePath)
-	checkError(err)
+	checkError("stat %s error: %v", c.filePath, err)
 
 	c.Status.Size = uint64(fileStat.Size())
 	c.Status.Parts = uint64(math.Ceil(float64(c.Status.Size) / float64(c.chunkSize)))
 
 	c.channel = make(chan stateCode, 1)
 	c.file, err = os.Open(c.filePath)
-	checkError(err)
+	checkError("stat %s error: %v", c.filePath, err)
 	c.wg.Add(1)
 
 	go c.upload()
@@ -115,14 +115,14 @@ func (c *GoUpload) upload() {
 }
 
 func (c *GoUpload) uploadChunk(i uint64) {
-	partSize := Min(c.chunkSize, c.Status.Size-i*c.chunkSize)
+	partSize := min(c.chunkSize, c.Status.Size-i*c.chunkSize)
 	if partSize <= 0 {
 		return
 	}
 
 	partBuffer := make([]byte, partSize)
 	n, err := c.file.Read(partBuffer)
-	checkError(err)
+	checkError("read %s error: %v", c.file.Name(), err)
 	if uint64(n) != partSize {
 		log.Fatalf("read n %d, should be %d", n, partSize)
 	}
@@ -135,7 +135,7 @@ func (c *GoUpload) uploadChunk(i uint64) {
 	c.Status.PartsTransferred = i + 1
 }
 
-func Min(a, b uint64) uint64 {
+func min(a, b uint64) uint64 {
 	if a < b {
 		return a
 	}
@@ -143,6 +143,7 @@ func Min(a, b uint64) uint64 {
 	return b
 }
 
+// Wait waits the upload complete
 func (c *GoUpload) Wait() {
 	c.wg.Wait()
 }

@@ -1,7 +1,7 @@
 package goup
 
 import (
-	"io/ioutil"
+	"io"
 	"log"
 	"mime"
 	"net/http"
@@ -21,8 +21,10 @@ type uploadFile struct {
 	start       time.Time
 }
 
-var files = make(map[string]*uploadFile)
-var filesLock sync.Mutex
+var (
+	files     = make(map[string]*uploadFile)
+	filesLock sync.Mutex
+)
 
 func deleteUploadFile(sessionID string) {
 	filesLock.Lock()
@@ -30,6 +32,7 @@ func deleteUploadFile(sessionID string) {
 
 	delete(files, sessionID)
 }
+
 func saveUploadFile(sessionID string, f *uploadFile) {
 	filesLock.Lock()
 	defer filesLock.Unlock()
@@ -72,8 +75,8 @@ func HTTPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := ioutil.ReadAll(r.Body)
-	checkError(err)
+	body, err := io.ReadAll(r.Body)
+	checkError("read body error: %v", err)
 
 	totalSize, partFrom, partTo := parseContentRange(contentRange)
 	u, _ := getUploadFile(sessionID)
@@ -81,15 +84,13 @@ func HTTPHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 
 		_, params, err := mime.ParseMediaType(header("Content-Disposition"))
-		checkError(err)
+		checkError("parse Content-Disposition error: %v", err)
 		fileName := params["filename"]
 
 		newFile := FileStorage.TempPath + "/" + sessionID
-		_, err = os.Create(newFile)
-		checkError(err)
 
-		f, err := os.OpenFile(newFile, os.O_APPEND|os.O_WRONLY, 0755)
-		checkError(err)
+		f, err := os.OpenFile(newFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o755)
+		checkError("open file %s error: %v", newFile, err)
 
 		u = &uploadFile{
 			file:     f,
@@ -108,7 +109,7 @@ func HTTPHandler(w http.ResponseWriter, r *http.Request) {
 
 	u.status = time.Now()
 	_, err = u.file.Write(body)
-	checkError(err)
+	checkError("write file %s error: %v", u.file.Name(), err)
 
 	u.file.Sync()
 	u.transferred = partTo
@@ -134,6 +135,6 @@ func (u *uploadFile) moveToPath() string {
 	}
 
 	err := os.Rename(u.tempPath, filePath)
-	checkError(err)
+	checkError("rename file from %s to %s, error: %v", u.tempPath, filePath, err)
 	return filePath
 }
