@@ -5,6 +5,7 @@ go 1.17
 require (
 	github.com/bingoohuang/gg v0.0.0-20220120145114-6d60468481d4
 	github.com/cheggaaa/pb/v3 v3.0.8
+	github.com/vthiery/retry v0.1.0
 )
 
 require (

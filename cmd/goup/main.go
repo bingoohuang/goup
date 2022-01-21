@@ -19,7 +19,7 @@ type Arg struct {
 	ServerUrl   string `flag:",u"`
 	FilePath    string `flag:",f"`
 	Rename      string `flag:",r"`
-	Port        int    `flag:",p"`
+	Port        int    `flag:",p" val:"2110"`
 	BearerToken string `flag:",b"`
 	Version     bool   `flag:",v"`
 	Init        bool
@@ -59,7 +59,7 @@ func main() {
 	flagparse.Parse(c)
 	chunkSize := uint64((c.ChunkSize) * (1 << 20))
 
-	if c.Port > 0 {
+	if c.ServerUrl == "" {
 		if c.BearerToken == "auto" {
 			c.BearerToken = goup.BearerTokenGenerate()
 			log.Printf("Bearer token %s generated", c.BearerToken)

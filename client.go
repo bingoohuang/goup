@@ -252,9 +252,13 @@ func (c *Client) goJobs(operation string, job func(i uint64) error) {
 			defer wg.Done()
 
 			for idx := range fnCh {
-				if err := job(idx); err != nil {
-					log.Printf("%s chunk %d: %v", operation, idx, err)
-				}
+				retryJob(func() error {
+					err := job(idx)
+					if err != nil {
+						log.Printf("%s chunk %d: %v", operation, idx, err)
+					}
+					return err
+				})
 			}
 		}()
 	}

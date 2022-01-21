@@ -24,11 +24,11 @@ Usage of goup:
 ```
 
 1. Installation `go install https://github.com/bingoohuang/goup`
-1. At the server, `goup -p 2110`
+1. At the server, `goup`
 2. At the client, `goup -u http://a.b.c:2110/ -f 246.png`
 
 ```sh
-$ goup -p 2110
+$ goup
 2022/01/20 17:40:20 Listening on 2110
 2022/01/20 17:40:24 recieved file 246.png with sessionID CF79FC6EA88010E1, range bytes 0-10485760/96894303
 2022/01/20 17:40:24 recieved file 246.png with sessionID CF79FC6EA88010E1, range bytes 10485760-20971520/96894303
