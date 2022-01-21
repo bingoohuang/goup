@@ -13,43 +13,45 @@ import (
 	"sync"
 )
 
-// GoUpload structure
-type GoUpload struct {
+// Client structure
+type Client struct {
 	client             *http.Client
 	url                string
-	filePath           string
+	fullpath           string
 	ID                 string
 	chunkSize          uint64
-	file               *os.File
-	Status             UploadStatus
+	TotalSize          uint64
 	wg                 sync.WaitGroup
 	contentDisposition string
 	bearer             string
+	progressing        Progressing
 }
 
-// UploadStatus holds the data about upload
-type UploadStatus struct {
-	Size             uint64
-	SizeTransferred  uint64
-	Parts            uint64
-	PartsTransferred uint64
+// GetParts get the number of chunk parts.
+func (c *Client) GetParts() uint64 {
+	return uint64(math.Ceil(float64(c.TotalSize) / float64(c.chunkSize)))
 }
 
-// New creates new instance of GoUpload Client
-func New(url, filePath, rename string, client *http.Client, chunkSize uint64, bearer string) (*GoUpload, error) {
+// New creates new instance of Client.
+func New(url, fullpath, rename string, c *http.Client, chunk uint64, bearer string, p Progressing) (*Client, error) {
 	fileName := rename
-	if fileName == "" {
-		fileName = filepath.Base(filePath)
+	if fileName == "" && fullpath != "" {
+		fileName = filepath.Base(fullpath)
 	}
 
-	g := &GoUpload{
-		client:             client,
+	if p == nil {
+		p = &noopProgressing{}
+	}
+
+	g := &Client{
+		client:             c,
 		url:                url,
-		filePath:           filePath,
+		fullpath:           fullpath,
 		contentDisposition: mime.FormatMediaType("attachment", map[string]string{"filename": fileName}),
 		ID:                 generateSessionID(),
-		chunkSize:          chunkSize,
+		chunkSize:          chunk,
 		bearer:             bearerPrefix + bearer,
+		progressing:        p,
 	}
 	if err := g.init(); err != nil {
 		return nil, err
@@ -59,34 +61,135 @@ func New(url, filePath, rename string, client *http.Client, chunkSize uint64, be
 }
 
 // Init method initializes upload
-func (c *GoUpload) init() error {
-	fileStat, err := os.Stat(c.filePath)
-	if err != nil {
-		return fmt.Errorf("stat %s: %w", c.filePath, err)
+func (c *Client) init() error {
+	if c.fullpath != "" { // for upload
+		return c.initUpload()
 	}
 
-	c.Status.Size = uint64(fileStat.Size())
-	c.Status.Parts = uint64(math.Ceil(float64(c.Status.Size) / float64(c.chunkSize)))
+	return c.initDownload()
+}
 
-	c.file, err = os.Open(c.filePath)
+func (c *Client) initDownload() error {
+	r0, err := http.NewRequest(http.MethodGet, c.url, nil)
 	if err != nil {
-		return fmt.Errorf("open %s: %w", c.filePath, err)
+		return fmt.Errorf("http.NewRequest %s: %w", c.url, err)
 	}
+	r0.Header.Set(Authorization, c.bearer)
+	rr0, err := c.client.Do(r0)
+	if err != nil {
+		return err
+	}
+	contentRange := rr0.Header.Get(ContentRange)
+	if rr0.StatusCode != http.StatusOK || contentRange == "" {
+		return fmt.Errorf("no file to donwload or upload")
+	}
+
+	cr, err := parseContentRange(contentRange)
+	if err != nil {
+		return fmt.Errorf("parse contentRange %s error: %w", contentRange, err)
+	}
+	_, params, err := mime.ParseMediaType(rr0.Header.Get(ContentDisposition))
+	if err != nil {
+		return fmt.Errorf("parse Content-Disposition error: %w", err)
+	}
+	if err := ensureDir(ServerFileStorage.Path); err != nil {
+		return err
+	}
+
+	c.fullpath = filepath.Join(ServerFileStorage.Path, params["filename"])
+	c.TotalSize = cr.TotalSize
 	c.wg.Add(1)
 
 	go func() {
-		defer Close(c.file)
 		defer c.wg.Done()
+
+		log.Printf("Download %s started: %v", c.ID, c.fullpath)
+		defer log.Printf("Download %s complete: %v", c.ID, c.fullpath)
+
+		c.progressing.Start(c.TotalSize)
+		defer c.progressing.Finish()
+		if err := c.download(); err != nil {
+			log.Printf("download error: %v", err)
+		}
+	}()
+
+	return nil
+}
+
+func (c *Client) initUpload() error {
+	fileStat, err := os.Stat(c.fullpath)
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", c.fullpath, err)
+	}
+
+	c.TotalSize = uint64(fileStat.Size())
+
+	c.wg.Add(1)
+
+	go func() {
+		defer c.wg.Done()
+
+		log.Printf("Upload %s started: %v", c.ID, c.fullpath)
+		defer log.Printf("Upload %s complete: %v", c.ID, c.fullpath)
+
+		c.progressing.Start(c.TotalSize)
+		defer c.progressing.Finish()
 
 		if err := c.upload(); err != nil {
 			log.Printf("upload error: %v", err)
 		}
 	}()
+
 	return nil
 }
 
-func (c *GoUpload) upload() error {
-	for i := uint64(0); i < c.Status.Parts; i++ {
+func (c *Client) download() error {
+	for i := uint64(0); i < c.GetParts(); i++ {
+		if err := c.downloadChunk(i); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *Client) downloadChunk(i uint64) error {
+	partSize := GetPartSize(c.TotalSize, c.chunkSize, i)
+	if partSize <= 0 {
+		return nil
+	}
+
+	cr := newChunkRange(i, c.chunkSize, partSize, c.TotalSize)
+	chunk, err := readChunk(c.fullpath, cr.From, cr.To)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", c.fullpath, err)
+	}
+
+	r0, err := http.NewRequest(http.MethodGet, c.url, nil)
+	r0.Header.Set(Authorization, c.bearer)
+	r0.Header.Set(ContentRange, cr.createContentRange())
+	r0.Header.Set(ContentDisposition, c.contentDisposition)
+	r0.Header.Set(SessionID, c.ID)
+	r0.Header.Set(ContentSha256, checksum(chunk))
+	rr0, err := c.client.Do(r0)
+	if err != nil {
+		return err
+	}
+	defer Close(rr0.Body)
+
+	c.progressing.Add(partSize)
+	if rr0.StatusCode == http.StatusNotModified {
+		return nil
+	}
+	if rr0.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status code: %d", rr0.StatusCode)
+	}
+
+	return writeChunk(c.fullpath, rr0.Body, cr)
+}
+
+func (c *Client) upload() error {
+	for i := uint64(0); i < c.GetParts(); i++ {
 		if err := c.uploadChunk(i); err != nil {
 			return err
 		}
@@ -95,34 +198,30 @@ func (c *GoUpload) upload() error {
 	return nil
 }
 
-func (c *GoUpload) uploadChunk(i uint64) error {
-	partSize := GetPartSize(c.Status.Size, c.chunkSize, i)
+func (c *Client) uploadChunk(i uint64) error {
+	partSize := GetPartSize(c.TotalSize, c.chunkSize, i)
 	if partSize <= 0 {
 		return nil
 	}
 
-	partBuffer := make([]byte, partSize)
-	n, err := c.file.Read(partBuffer)
+	cr := newChunkRange(i, c.chunkSize, partSize, c.TotalSize)
+	chunk, err := readChunk(c.fullpath, cr.From, cr.To)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", c.file.Name(), err)
+		return fmt.Errorf("read %s: %w", c.fullpath, err)
 	}
 
-	if uint64(n) != partSize {
-		return fmt.Errorf("read n %d, should be %d", n, partSize)
-	}
-
-	contentRange := generateContentRange(i, c.chunkSize, partSize, c.Status.Size)
-	responseBody, err := c.chunkUpload(partBuffer, c.url, c.ID, contentRange)
+	responseBody, err := c.chunkUpload(chunk, cr.createContentRange())
 	if err != nil {
 		return fmt.Errorf("chunk %d upload: %w", i+1, err)
 	}
 
-	c.Status.SizeTransferred, err = parseBodyAsSizeTransferred(responseBody)
+	c.progressing.Add(partSize)
+
+	_, err = parseBodyAsSizeTransferred(responseBody)
 	if err != nil {
 		return fmt.Errorf("parse body as size transferred %s: %w", responseBody, err)
 	}
 
-	c.Status.PartsTransferred = i + 1
 	return nil
 }
 
@@ -135,19 +234,18 @@ func min(a, b uint64) uint64 {
 }
 
 // Wait waits the upload complete
-func (c *GoUpload) Wait() {
+func (c *Client) Wait() {
 	c.wg.Wait()
 }
 
-func (c *GoUpload) chunkUpload(part []byte, url, sessionID, contentRange string) (string, error) {
-	r0, err := http.NewRequest(http.MethodGet, url, nil)
+func (c *Client) chunkUpload(part []byte, contentRange string) (string, error) {
+	r0, err := http.NewRequest(http.MethodGet, c.url, nil)
 
 	r0.Header.Set(Authorization, c.bearer)
 	r0.Header.Set(ContentRange, contentRange)
 	r0.Header.Set(ContentDisposition, c.contentDisposition)
-	r0.Header.Set(SessionID, sessionID)
-	sum := checksum(part)
-	r0.Header.Set(ContentSha256, sum)
+	r0.Header.Set(SessionID, c.ID)
+	r0.Header.Set(ContentSha256, checksum(part))
 	rr0, err := c.client.Do(r0)
 	if err != nil {
 		return "", err
@@ -160,7 +258,7 @@ func (c *GoUpload) chunkUpload(part []byte, url, sessionID, contentRange string)
 		return "", fmt.Errorf("bad status code: %d", rr0.StatusCode)
 	}
 
-	r, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(part))
+	r, err := http.NewRequest(http.MethodPost, c.url, bytes.NewBuffer(part))
 	if err != nil {
 		return "", err
 	}
@@ -169,7 +267,7 @@ func (c *GoUpload) chunkUpload(part []byte, url, sessionID, contentRange string)
 	r.Header.Set(ContentType, "application/octet-stream")
 	r.Header.Set(ContentDisposition, c.contentDisposition)
 	r.Header.Set(ContentRange, contentRange)
-	r.Header.Set(SessionID, sessionID)
+	r.Header.Set(SessionID, c.ID)
 	rr, err := c.client.Do(r)
 	if err != nil {
 		return "", err
@@ -181,7 +279,7 @@ func (c *GoUpload) chunkUpload(part []byte, url, sessionID, contentRange string)
 		return "", err
 	}
 
-	if rr.StatusCode != 200 {
+	if rr.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("bad status code: %d", rr.StatusCode)
 	}
 

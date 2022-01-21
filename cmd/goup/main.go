@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/bingoohuang/gg/pkg/flagparse"
@@ -42,6 +41,17 @@ Usage of goup:
 // VersionInfo is optional for customized version.
 func (a Arg) VersionInfo() string { return v.Version() }
 
+type pbProgress struct {
+	bar *pb.ProgressBar
+}
+
+func (p pbProgress) Start(value uint64) {
+	p.bar.SetTotal(int64(value))
+	p.bar.Start()
+}
+func (p pbProgress) Add(value uint64) { p.bar.Add64(int64(value)) }
+func (p pbProgress) Finish()          { p.bar.Finish() }
+
 func main() {
 	c := &Arg{}
 	flagparse.Parse(c)
@@ -63,33 +73,13 @@ func main() {
 		}
 		return
 	}
-
-	g, err := goup.New(c.ServerUrl, c.FilePath, c.Rename, &http.Client{}, chunkSize, c.BearerToken)
+	bar := pb.New(0)
+	bar.SetRefreshRate(time.Millisecond)
+	bar.Set(pb.Bytes, true)
+	g, err := goup.New(c.ServerUrl, c.FilePath, c.Rename, &http.Client{}, chunkSize, c.BearerToken, &pbProgress{bar: bar})
 	if err != nil {
 		log.Fatalf("new goup client: %v", err)
 	}
-	bar := pb.New(int(g.Status.Size))
-	bar.SetRefreshRate(time.Millisecond)
-	bar.Set(pb.Bytes, true)
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		log.Printf("Upload %s started", g.ID)
-		defer func() {
-			bar.SetCurrent(int64(g.Status.Size))
-			bar.Finish()
-			wg.Done()
-			log.Printf("Upload %s completed", g.ID)
-		}()
-
-		bar.Start()
-		for g.Status.SizeTransferred < g.Status.Size {
-			bar.SetCurrent(int64(g.Status.SizeTransferred))
-			time.Sleep(time.Millisecond)
-		}
-	}()
 
 	g.Wait()
-	wg.Wait()
 }

@@ -1,6 +1,6 @@
 # goup
 
-Utility to upload large files through HTTP.
+Utility to upload or download large files through HTTP in broken-point continuously.
 
 This is done by splitting large file into small chunks; whenever the upload of a chunk fails, uploading is retried until
 the procedure completes. This allows uploads to automatically resume uploading after a network connection is lost, or
@@ -47,6 +47,8 @@ $ sha256sum .goup-files/246.png
 32677ca3a5b19ee5590a75d423b3fc2d754bd76900d50c26e0525681985189f8  .goup-files/aDrive.dmg
 ```
 
+upload example:
+
 ```sh
 $ goup -u http://127.0.0.1:2110/ -f 246.png                           
 2022/01/20 17:44:08 Upload B821C49E4B1CBDBD started
@@ -67,3 +69,10 @@ $ sha256sum 246.png
 
 As you can see, even if you terminate the client uploading, you can resume uploading from last breakpoint.
 
+
+```sh
+$ goup -u http://127.0.0.1:2110/246.png
+2022/01/21 13:29:43 download started: .goup-files/246.png
+92.41 MiB / 92.41 MiB [---------------------------------------------------------------------] 100.00% 97.56 MiB p/s
+2022/01/21 13:29:44 download complete: .goup-files/246.png
+```

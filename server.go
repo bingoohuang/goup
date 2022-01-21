@@ -29,15 +29,16 @@ func InitServer() error {
 // ServerHandle is main request/response handler for HTTP server.
 func ServerHandle(chunkSize uint64) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		contentRange := r.Header.Get(ContentRange)
+
 		switch {
-		case r.URL.Path == "/":
-			if err := doUploadHandle(w, r); err != nil {
+		case r.URL.Path == "/" && contentRange != "":
+			if err := doUploadHandle(w, r, contentRange); err != nil {
 				log.Printf("uploading error: %v", err)
 				w.WriteHeader(http.StatusInternalServerError)
 				_, _ = w.Write([]byte(err.Error()))
 			}
-		case r.Method == http.MethodGet:
-			// may be downloads
+		case r.Method == http.MethodGet: // may be downloads
 			fullpath := filepath.Join(ServerFileStorage.Path, "."+r.URL.Path)
 			stat, err := os.Stat(fullpath)
 			if os.IsNotExist(err) {
@@ -45,67 +46,48 @@ func ServerHandle(chunkSize uint64) http.HandlerFunc {
 				return
 			}
 
-			contentRange := r.Header.Get(ContentRange)
+			filename := filepath.Base(fullpath)
 			if contentRange == "" {
 				totalSize := uint64(stat.Size())
 				partSize := GetPartSize(totalSize, chunkSize, 0)
-				contentRange = generateContentRange(0, chunkSize, partSize, totalSize)
-				w.Header().Set(ContentRange, contentRange)
-				sum := readChecksum(fullpath, 0, int64(partSize))
-				w.Write([]byte(sum))
+				cr := newChunkRange(0, chunkSize, partSize, totalSize)
+				w.Header().Set(ContentRange, cr.createContentRange())
+				w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 				return
 			}
 
-			_, partFrom, partTo, err := parseContentRange(contentRange)
+			cr, err := parseContentRange(contentRange)
 			if err != nil {
 				log.Printf("parse contentRange %s error: %v", contentRange, err)
 				w.WriteHeader(http.StatusInternalServerError)
 			}
 
-			if contentSha256 := r.Header.Get(ContentSha256); contentSha256 != "" {
-				if old := readChecksum(fullpath, partFrom, partTo); old == contentSha256 {
+			if sum := r.Header.Get(ContentSha256); sum != "" {
+				if old := readChecksum(fullpath, cr.From, cr.To); old == sum {
 					w.WriteHeader(http.StatusNotModified)
 				}
 			}
 
-			f, err := os.OpenFile(fullpath, os.O_RDONLY, 0o755)
+			chunk, err := readChunk(fullpath, cr.From, cr.To)
 			if err != nil {
-				log.Printf("open file %s error: %v", fullpath, err)
+				log.Printf("read %s chunk: %v", fullpath, err)
 				w.WriteHeader(http.StatusInternalServerError)
 			}
-			defer Close(f)
 
-			if _, err := f.Seek(partFrom, io.SeekStart); err != nil {
-				log.Printf("seek file %s to %d error: %v", fullpath, partFrom, err)
-				w.WriteHeader(http.StatusInternalServerError)
-			}
-			partBuffer := make([]byte, partTo-partFrom)
-			if n, err := f.Read(partBuffer); err != nil {
-				log.Printf("read file %s error: %v", fullpath, err)
-				w.WriteHeader(http.StatusInternalServerError)
-			} else if n < int(partTo-partFrom) {
-				log.Printf("read file %s not enough real %d < expected %d error: %v", fullpath, n, partTo-partFrom, err)
-				w.WriteHeader(http.StatusInternalServerError)
-			} else {
-				w.Header().Set(ContentType, "application/octet-stream")
-				cd := mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(fullpath)})
-				w.Header().Set(ContentDisposition, cd)
-				w.Header().Set(ContentRange, contentRange)
-				w.Write(partBuffer)
-			}
+			w.Header().Set(ContentType, "application/octet-stream")
+			w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+			w.Header().Set(ContentRange, contentRange)
+			log.Printf("send file %s with session %s, range %s", filename, r.Header.Get(SessionID), contentRange)
+
+			_, _ = w.Write(chunk)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}
 }
 
-func doUploadHandle(w http.ResponseWriter, r *http.Request) error {
-	contentRange := r.Header.Get(ContentRange)
-	if contentRange == "" {
-		return fmt.Errorf("empty contentRange")
-	}
-
-	totalSize, partFrom, partTo, err := parseContentRange(contentRange)
+func doUploadHandle(w http.ResponseWriter, r *http.Request, contentRange string) error {
+	cr, err := parseContentRange(contentRange)
 	if err != nil {
 		return fmt.Errorf("parse contentRange %s error: %w", contentRange, err)
 	}
@@ -117,8 +99,8 @@ func doUploadHandle(w http.ResponseWriter, r *http.Request) error {
 	filename := params["filename"]
 	fullpath := filepath.Join(ServerFileStorage.Path, filename)
 
-	if contentSha256 := r.Header.Get(ContentSha256); r.Method == http.MethodGet && contentSha256 != "" {
-		if old := readChecksum(fullpath, partFrom, partTo); old == contentSha256 {
+	if sum := r.Header.Get(ContentSha256); r.Method == http.MethodGet && sum != "" {
+		if old := readChecksum(fullpath, cr.From, cr.To); old == sum {
 			w.WriteHeader(http.StatusNotModified)
 		}
 
@@ -129,39 +111,19 @@ func doUploadHandle(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("invalid http method")
 	}
 
-	f, err := os.OpenFile(fullpath, os.O_CREATE|os.O_RDWR, 0o755)
-	if err != nil {
+	if err := writeChunk(fullpath, r.Body, cr); err != nil {
 		return fmt.Errorf("open file %s error: %w", fullpath, err)
-	}
-	defer Close(f)
-
-	if partFrom == 0 {
-		if err := f.Truncate(totalSize); err != nil {
-			return fmt.Errorf("truncate file %s to size %d error: %w", fullpath, totalSize, err)
-		}
-	}
-
-	sessionID := r.Header.Get(SessionID)
-	if _, err := f.Seek(partFrom, io.SeekStart); err != nil {
-		return fmt.Errorf("seek file %s with pot %d error: %w", f.Name(), partFrom, err)
-	}
-	if _, err := io.Copy(f, r.Body); err != nil {
-		return fmt.Errorf("write file %s error: %w", fullpath, err)
-	}
-
-	if err := f.Sync(); err != nil {
-		return fmt.Errorf("sync file %s error: %w", fullpath, err)
 	}
 
 	if _, err := w.Write([]byte(contentRange)); err != nil {
 		return fmt.Errorf("write file %s error: %w", fullpath, err)
 	}
 
-	log.Printf("recieved file %s with session %s, range %s", filename, sessionID, contentRange)
+	log.Printf("recieved file %s with session %s, range %s", filename, r.Header.Get(SessionID), contentRange)
 	return nil
 }
 
-func readChecksum(fullpath string, from, to int64) string {
+func readChecksum(fullpath string, from, to uint64) string {
 	if fileNotExists(fullpath) {
 		return ""
 	}
@@ -173,14 +135,17 @@ func readChecksum(fullpath string, from, to int64) string {
 	}
 	defer Close(f)
 
-	if _, err := f.Seek(from, io.SeekStart); err != nil {
+	if _, err := f.Seek(int64(from), io.SeekStart); err != nil {
 		log.Printf("failed to see file %s to %d ,error: %v", fullpath, from, err)
 		return ""
 	}
 
 	buf := make([]byte, to-from)
-	if _, err := f.Read(buf); err != nil {
+	if n, err := f.Read(buf); err != nil {
 		log.Printf("failed to read file %s  ,error: %v", fullpath, err)
+		return ""
+	} else if n < int(to-from) {
+		log.Printf("read file %s not enough real %d < expected %d error: %v", fullpath, n, to-from, err)
 		return ""
 	}
 
