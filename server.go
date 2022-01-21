@@ -119,7 +119,7 @@ func doUploadHandle(w http.ResponseWriter, r *http.Request, contentRange string)
 		return fmt.Errorf("write file %s error: %w", fullPath, err)
 	}
 
-	log.Printf("recieved file %s with session %s, range %s", filename, r.Header.Get(SessionID), contentRange)
+	log.Printf("recv file %s with session %s, range %s", filename, r.Header.Get(SessionID), contentRange)
 	return nil
 }
 
