@@ -42,6 +42,6 @@ func bearerUnauthorized(res http.ResponseWriter) {
 // BearerTokenGenerate generates a random bearer token.
 func BearerTokenGenerate() string {
 	b := make([]byte, 15)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return base64.RawURLEncoding.EncodeToString(b)
 }

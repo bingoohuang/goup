@@ -17,7 +17,7 @@ import (
 type Client struct {
 	client             *http.Client
 	url                string
-	fullpath           string
+	fullPath           string
 	ID                 string
 	chunkSize          uint64
 	TotalSize          uint64
@@ -33,10 +33,10 @@ func (c *Client) GetParts() uint64 {
 }
 
 // New creates new instance of Client.
-func New(url, fullpath, rename string, c *http.Client, chunk uint64, bearer string, p Progressing) (*Client, error) {
+func New(url, fullPath, rename, bearer string, c *http.Client, chunk uint64, p Progressing) (*Client, error) {
 	fileName := rename
-	if fileName == "" && fullpath != "" {
-		fileName = filepath.Base(fullpath)
+	if fileName == "" && fullPath != "" {
+		fileName = filepath.Base(fullPath)
 	}
 
 	if p == nil {
@@ -46,7 +46,7 @@ func New(url, fullpath, rename string, c *http.Client, chunk uint64, bearer stri
 	g := &Client{
 		client:             c,
 		url:                url,
-		fullpath:           fullpath,
+		fullPath:           fullPath,
 		contentDisposition: mime.FormatMediaType("attachment", map[string]string{"filename": fileName}),
 		ID:                 generateSessionID(),
 		chunkSize:          chunk,
@@ -62,7 +62,7 @@ func New(url, fullpath, rename string, c *http.Client, chunk uint64, bearer stri
 
 // Init method initializes upload
 func (c *Client) init() error {
-	if c.fullpath != "" { // for upload
+	if c.fullPath != "" { // for upload
 		return c.initUpload()
 	}
 
@@ -96,15 +96,15 @@ func (c *Client) initDownload() error {
 		return err
 	}
 
-	c.fullpath = filepath.Join(ServerFileStorage.Path, params["filename"])
+	c.fullPath = filepath.Join(ServerFileStorage.Path, params["filename"])
 	c.TotalSize = cr.TotalSize
 	c.wg.Add(1)
 
 	go func() {
 		defer c.wg.Done()
 
-		log.Printf("Download %s started: %v", c.ID, c.fullpath)
-		defer log.Printf("Download %s complete: %v", c.ID, c.fullpath)
+		log.Printf("Download %s started: %v", c.ID, c.fullPath)
+		defer log.Printf("Download %s complete: %v", c.ID, c.fullPath)
 
 		c.progressing.Start(c.TotalSize)
 		defer c.progressing.Finish()
@@ -117,9 +117,9 @@ func (c *Client) initDownload() error {
 }
 
 func (c *Client) initUpload() error {
-	fileStat, err := os.Stat(c.fullpath)
+	fileStat, err := os.Stat(c.fullPath)
 	if err != nil {
-		return fmt.Errorf("stat %s: %w", c.fullpath, err)
+		return fmt.Errorf("stat %s: %w", c.fullPath, err)
 	}
 
 	c.TotalSize = uint64(fileStat.Size())
@@ -129,8 +129,8 @@ func (c *Client) initUpload() error {
 	go func() {
 		defer c.wg.Done()
 
-		log.Printf("Upload %s started: %v", c.ID, c.fullpath)
-		defer log.Printf("Upload %s complete: %v", c.ID, c.fullpath)
+		log.Printf("Upload %s started: %v", c.ID, c.fullPath)
+		defer log.Printf("Upload %s complete: %v", c.ID, c.fullPath)
 
 		c.progressing.Start(c.TotalSize)
 		defer c.progressing.Finish()
@@ -160,9 +160,9 @@ func (c *Client) downloadChunk(i uint64) error {
 	}
 
 	cr := newChunkRange(i, c.chunkSize, partSize, c.TotalSize)
-	chunk, err := readChunk(c.fullpath, cr.From, cr.To)
+	chunk, err := readChunk(c.fullPath, cr.From, cr.To)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", c.fullpath, err)
+		return fmt.Errorf("read %s: %w", c.fullPath, err)
 	}
 
 	r0, err := http.NewRequest(http.MethodGet, c.url, nil)
@@ -185,7 +185,7 @@ func (c *Client) downloadChunk(i uint64) error {
 		return fmt.Errorf("bad status code: %d", rr0.StatusCode)
 	}
 
-	return writeChunk(c.fullpath, rr0.Body, cr)
+	return writeChunk(c.fullPath, rr0.Body, cr)
 }
 
 func (c *Client) upload() error {
@@ -205,9 +205,9 @@ func (c *Client) uploadChunk(i uint64) error {
 	}
 
 	cr := newChunkRange(i, c.chunkSize, partSize, c.TotalSize)
-	chunk, err := readChunk(c.fullpath, cr.From, cr.To)
+	chunk, err := readChunk(c.fullPath, cr.From, cr.To)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", c.fullpath, err)
+		return fmt.Errorf("read %s: %w", c.fullPath, err)
 	}
 
 	responseBody, err := c.chunkUpload(chunk, cr.createContentRange())

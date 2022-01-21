@@ -40,20 +40,20 @@ func (n noopProgressing) Start(uint64) {}
 func (n noopProgressing) Add(uint64)   {}
 func (n noopProgressing) Finish()      {}
 
-func writeChunk(fullpath string, chunk io.Reader, cr *chunkRange) error {
-	f, err := os.OpenFile(fullpath, os.O_CREATE|os.O_RDWR, 0o755)
+func writeChunk(fullPath string, chunk io.Reader, cr *chunkRange) error {
+	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_RDWR, 0o755)
 	if err != nil {
-		return fmt.Errorf("open file %s error: %w", fullpath, err)
+		return fmt.Errorf("open file %s error: %w", fullPath, err)
 	}
 	defer Close(f)
 
 	stat, err := f.Stat()
 	if err != nil {
-		return fmt.Errorf("stat file %s error: %w", fullpath, err)
+		return fmt.Errorf("stat file %s error: %w", fullPath, err)
 	}
 	if stat.Size() != int64(cr.TotalSize) {
 		if err := f.Truncate(int64(cr.TotalSize)); err != nil {
-			return fmt.Errorf("truncate file %s to size %d error: %w", fullpath, cr.TotalSize, err)
+			return fmt.Errorf("truncate file %s to size %d error: %w", fullPath, cr.TotalSize, err)
 		}
 	}
 
@@ -61,35 +61,35 @@ func writeChunk(fullpath string, chunk io.Reader, cr *chunkRange) error {
 		return fmt.Errorf("seek file %s with pot %d error: %w", f.Name(), cr.From, err)
 	}
 	if _, err := io.Copy(f, chunk); err != nil {
-		return fmt.Errorf("write file %s error: %w", fullpath, err)
+		return fmt.Errorf("write file %s error: %w", fullPath, err)
 	}
 
 	if err := f.Sync(); err != nil {
-		return fmt.Errorf("sync file %s error: %w", fullpath, err)
+		return fmt.Errorf("sync file %s error: %w", fullPath, err)
 	}
 
 	return nil
 }
 
-func readChunk(fullpath string, partFrom, partTo uint64) ([]byte, error) {
-	if fileNotExists(fullpath) {
+func readChunk(fullPath string, partFrom, partTo uint64) ([]byte, error) {
+	if fileNotExists(fullPath) {
 		return nil, nil
 	}
 
-	f, err := os.OpenFile(fullpath, os.O_RDONLY, 0o755)
+	f, err := os.OpenFile(fullPath, os.O_RDONLY, 0o755)
 	if err != nil {
-		return nil, fmt.Errorf("open file %s error: %w", fullpath, err)
+		return nil, fmt.Errorf("open file %s error: %w", fullPath, err)
 	}
 	defer Close(f)
 
 	if _, err := f.Seek(int64(partFrom), io.SeekStart); err != nil {
-		return nil, fmt.Errorf("seek file %s to %d error: %w", fullpath, partFrom, err)
+		return nil, fmt.Errorf("seek file %s to %d error: %w", fullPath, partFrom, err)
 	}
 	chunk := make([]byte, partTo-partFrom)
 	if n, err := f.Read(chunk); err != nil {
-		return nil, fmt.Errorf("read file %s error: %w", fullpath, err)
+		return nil, fmt.Errorf("read file %s error: %w", fullPath, err)
 	} else if n < int(partTo-partFrom) {
-		return nil, fmt.Errorf("read file %s real %d < expected %d", fullpath, n, partTo-partFrom)
+		return nil, fmt.Errorf("read file %s real %d < expected %d", fullPath, n, partTo-partFrom)
 	}
 	return chunk, nil
 }
@@ -101,7 +101,7 @@ func GetPartSize(totalSize, chunkSize, idx uint64) uint64 {
 
 func generateSessionID() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return fmt.Sprintf("%X", b)
 }
 
@@ -134,13 +134,13 @@ func parseContentRange(contentRange string) (c *chunkRange, err error) {
 		return nil, err
 	}
 
-	splitted := strings.Split(fromTo, "-")
-	partFrom, err := strconv.ParseUint(splitted[0], 10, 64)
+	split := strings.Split(fromTo, "-")
+	partFrom, err := strconv.ParseUint(split[0], 10, 64)
 	if err != nil {
 		return nil, err
 	}
 
-	partTo, err := strconv.ParseUint(splitted[1], 10, 64)
+	partTo, err := strconv.ParseUint(split[1], 10, 64)
 	if err != nil {
 		return nil, err
 	}
