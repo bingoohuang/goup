@@ -35,6 +35,7 @@ func (c *Client) GetParts() uint64 {
 	return uint64(math.Ceil(float64(c.TotalSize) / float64(c.chunkSize)))
 }
 
+// Opt is the client options.
 type Opt struct {
 	ChunkSize uint64
 	Progress
@@ -45,10 +46,11 @@ type Opt struct {
 	Coroutines int
 }
 
+// OptFn is the option pattern func prototype.
 type OptFn func(*Opt)
 
-// WithHttpClient set *http.Client.
-func WithHttpClient(v *http.Client) OptFn { return func(c *Opt) { c.Client = v } }
+// WithHTTPClient set *http.Client.
+func WithHTTPClient(v *http.Client) OptFn { return func(c *Opt) { c.Client = v } }
 
 // WithChunkSize set ChunkSize.
 func WithChunkSize(v uint64) OptFn { return func(c *Opt) { c.ChunkSize = v } }
@@ -157,7 +159,7 @@ func (c *Client) initDownload() error {
 
 		c.progress.Start(c.TotalSize)
 		defer c.progress.Finish()
-		if err := c.download(); err != nil {
+		if err := c.do("download", c.downloadChunk); err != nil {
 			log.Printf("download error: %v", err)
 		}
 	}()
@@ -183,7 +185,7 @@ func (c *Client) initUpload() error {
 		c.progress.Start(c.TotalSize)
 		defer c.progress.Finish()
 
-		if err := c.upload(); err != nil {
+		if err := c.do("upload", c.uploadChunk); err != nil {
 			log.Printf("upload error: %v", err)
 		}
 	}()
@@ -191,10 +193,10 @@ func (c *Client) initUpload() error {
 	return nil
 }
 
-func (c *Client) download() error {
+func (c *Client) do(operation string, job func(i uint64) error) error {
 	if c.coroutines <= 0 {
 		for i := uint64(0); i < c.GetParts(); i++ {
-			if err := c.downloadChunk(i); err != nil {
+			if err := job(i); err != nil {
 				return err
 			}
 		}
@@ -202,7 +204,7 @@ func (c *Client) download() error {
 		return nil
 	}
 
-	c.goJobs("download", c.downloadChunk)
+	c.goJobs(operation, job)
 	return nil
 }
 
@@ -263,21 +265,6 @@ func (c *Client) goJobs(operation string, job func(i uint64) error) {
 	close(fnCh)
 
 	wg.Wait()
-}
-
-func (c *Client) upload() error {
-	if c.coroutines <= 0 {
-		for i := uint64(0); i < c.GetParts(); i++ {
-			if err := c.uploadChunk(i); err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}
-
-	c.goJobs("upload", c.uploadChunk)
-	return nil
 }
 
 func (c *Client) uploadChunk(i uint64) error {
