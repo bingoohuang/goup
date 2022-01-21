@@ -39,51 +39,58 @@ func ServerHandle(chunkSize uint64) http.HandlerFunc {
 				_, _ = w.Write([]byte(err.Error()))
 			}
 		case r.Method == http.MethodGet: // may be downloads
-			fullPath := filepath.Join(ServerFileStorage.Path, "."+r.URL.Path)
-			stat, err := os.Stat(fullPath)
-			if os.IsNotExist(err) {
-				w.WriteHeader(http.StatusNotFound)
-				return
+			if status := serveDownload(w, r, contentRange, chunkSize); status > 0 {
+				w.WriteHeader(status)
 			}
-
-			filename := filepath.Base(fullPath)
-			if contentRange == "" {
-				totalSize := uint64(stat.Size())
-				partSize := GetPartSize(totalSize, chunkSize, 0)
-				cr := newChunkRange(0, chunkSize, partSize, totalSize)
-				w.Header().Set(ContentRange, cr.createContentRange())
-				w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
-				return
-			}
-
-			cr, err := parseContentRange(contentRange)
-			if err != nil {
-				log.Printf("parse contentRange %s error: %v", contentRange, err)
-				w.WriteHeader(http.StatusInternalServerError)
-			}
-
-			if sum := r.Header.Get(ContentSha256); sum != "" {
-				if old := readChecksum(fullPath, cr.From, cr.To); old == sum {
-					w.WriteHeader(http.StatusNotModified)
-				}
-			}
-
-			chunk, err := readChunk(fullPath, cr.From, cr.To)
-			if err != nil {
-				log.Printf("read %s chunk: %v", fullPath, err)
-				w.WriteHeader(http.StatusInternalServerError)
-			}
-
-			w.Header().Set(ContentType, "application/octet-stream")
-			w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
-			w.Header().Set(ContentRange, contentRange)
-			log.Printf("send file %s with session %s, range %s", filename, r.Header.Get(SessionID), contentRange)
-
-			_, _ = w.Write(chunk)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}
+}
+
+func serveDownload(w http.ResponseWriter, r *http.Request, contentRange string, chunkSize uint64) int {
+	fullPath := filepath.Join(ServerFileStorage.Path, "."+r.URL.Path)
+	stat, err := os.Stat(fullPath)
+	if os.IsNotExist(err) {
+		return http.StatusNotFound
+	}
+
+	filename := filepath.Base(fullPath)
+	if contentRange == "" {
+		totalSize := uint64(stat.Size())
+		partSize := GetPartSize(totalSize, chunkSize, 0)
+		cr := newChunkRange(0, chunkSize, partSize, totalSize)
+		w.Header().Set(ContentRange, cr.createContentRange())
+		w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+		return 0
+	}
+
+	cr, err := parseContentRange(contentRange)
+	if err != nil {
+		log.Printf("parse contentRange %s error: %v", contentRange, err)
+		return http.StatusInternalServerError
+	}
+
+	if sum := r.Header.Get(ContentSha256); sum != "" {
+		if old := readChecksum(fullPath, cr.From, cr.To); old == sum {
+			log.Printf("304 file %s with session %s, range %s", filename, r.Header.Get(SessionID), contentRange)
+			return http.StatusNotModified
+		}
+	}
+
+	chunk, err := readChunk(fullPath, cr.From, cr.To)
+	if err != nil {
+		log.Printf("read %s chunk: %v", fullPath, err)
+		return http.StatusInternalServerError
+	}
+
+	w.Header().Set(ContentType, "application/octet-stream")
+	w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	w.Header().Set(ContentRange, contentRange)
+	log.Printf("send file %s with session %s, range %s", filename, r.Header.Get(SessionID), contentRange)
+
+	_, _ = w.Write(chunk)
+	return 0
 }
 
 func doUploadHandle(w http.ResponseWriter, r *http.Request, contentRange string) error {
