@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/bingoohuang/gg/pkg/rest"
 )
 
 // Client structure
@@ -43,9 +45,13 @@ func New(url, fullPath, rename, bearer string, c *http.Client, chunk uint64, p P
 		p = &noopProgressing{}
 	}
 
+	fixedURL, err := rest.FixURI(url)
+	if err != nil {
+		return nil, err
+	}
 	g := &Client{
 		client:             c,
-		url:                url,
+		url:                fixedURL,
 		fullPath:           fullPath,
 		contentDisposition: mime.FormatMediaType("attachment", map[string]string{"filename": fileName}),
 		ID:                 generateSessionID(),
