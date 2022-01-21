@@ -26,7 +26,7 @@ type Client struct {
 	wg                 sync.WaitGroup
 	contentDisposition string
 	bearer             string
-	progressing        Progressing
+	progress           Progress
 }
 
 // GetParts get the number of chunk parts.
@@ -34,15 +34,52 @@ func (c *Client) GetParts() uint64 {
 	return uint64(math.Ceil(float64(c.TotalSize) / float64(c.chunkSize)))
 }
 
+type Opt struct {
+	ChunkSize uint64
+	Progress
+	*http.Client
+	Rename   string
+	Bearer   string
+	FullPath string
+}
+
+type OptFn func(*Opt)
+
+// WithHttpClient set *http.Client.
+func WithHttpClient(v *http.Client) OptFn { return func(c *Opt) { c.Client = v } }
+
+// WithChunkSize set ChunkSize.
+func WithChunkSize(v uint64) OptFn { return func(c *Opt) { c.ChunkSize = v } }
+
+// WithProgress set WithProgress.
+func WithProgress(v Progress) OptFn { return func(c *Opt) { c.Progress = v } }
+
+// WithRename set WithRename.
+func WithRename(v string) OptFn { return func(c *Opt) { c.Rename = v } }
+
+// WithBearer set Bearer.
+func WithBearer(v string) OptFn { return func(c *Opt) { c.Bearer = v } }
+
+// WithFullPath set FullPath.
+func WithFullPath(v string) OptFn { return func(c *Opt) { c.FullPath = v } }
+
 // New creates new instance of Client.
-func New(url, fullPath, rename, bearer string, c *http.Client, chunk uint64, p Progressing) (*Client, error) {
-	fileName := rename
-	if fileName == "" && fullPath != "" {
-		fileName = filepath.Base(fullPath)
+func New(url string, fns ...OptFn) (*Client, error) {
+	opt := &Opt{}
+	for _, fn := range fns {
+		fn(opt)
 	}
 
-	if p == nil {
-		p = &noopProgressing{}
+	fileName := opt.Rename
+	if fileName == "" && opt.FullPath != "" {
+		fileName = filepath.Base(opt.FullPath)
+	}
+
+	if opt.Client == nil {
+		opt.Client = &http.Client{}
+	}
+	if opt.Progress == nil {
+		opt.Progress = &noopProgressing{}
 	}
 
 	fixedURL, err := rest.FixURI(url)
@@ -50,14 +87,14 @@ func New(url, fullPath, rename, bearer string, c *http.Client, chunk uint64, p P
 		return nil, err
 	}
 	g := &Client{
-		client:             c,
+		client:             opt.Client,
 		url:                fixedURL,
-		fullPath:           fullPath,
+		fullPath:           opt.FullPath,
 		contentDisposition: mime.FormatMediaType("attachment", map[string]string{"filename": fileName}),
 		ID:                 generateSessionID(),
-		chunkSize:          chunk,
-		bearer:             bearerPrefix + bearer,
-		progressing:        p,
+		chunkSize:          opt.ChunkSize,
+		bearer:             bearerPrefix + opt.Bearer,
+		progress:           opt.Progress,
 	}
 	if err := g.init(); err != nil {
 		return nil, err
@@ -112,8 +149,8 @@ func (c *Client) initDownload() error {
 		log.Printf("Download %s started: %v", c.ID, c.fullPath)
 		defer log.Printf("Download %s complete: %v", c.ID, c.fullPath)
 
-		c.progressing.Start(c.TotalSize)
-		defer c.progressing.Finish()
+		c.progress.Start(c.TotalSize)
+		defer c.progress.Finish()
 		if err := c.download(); err != nil {
 			log.Printf("download error: %v", err)
 		}
@@ -138,8 +175,8 @@ func (c *Client) initUpload() error {
 		log.Printf("Upload %s started: %v", c.ID, c.fullPath)
 		defer log.Printf("Upload %s complete: %v", c.ID, c.fullPath)
 
-		c.progressing.Start(c.TotalSize)
-		defer c.progressing.Finish()
+		c.progress.Start(c.TotalSize)
+		defer c.progress.Finish()
 
 		if err := c.upload(); err != nil {
 			log.Printf("upload error: %v", err)
@@ -183,7 +220,7 @@ func (c *Client) downloadChunk(i uint64) error {
 	}
 	defer Close(rr0.Body)
 
-	c.progressing.Add(partSize)
+	c.progress.Add(partSize)
 	if rr0.StatusCode == http.StatusNotModified {
 		return nil
 	}
@@ -221,7 +258,7 @@ func (c *Client) uploadChunk(i uint64) error {
 		return fmt.Errorf("chunk %d upload: %w", i+1, err)
 	}
 
-	c.progressing.Add(partSize)
+	c.progress.Add(partSize)
 
 	_, err = parseBodyAsSizeTransferred(responseBody)
 	if err != nil {

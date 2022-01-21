@@ -76,7 +76,12 @@ func main() {
 	bar := pb.New(0)
 	bar.SetRefreshRate(time.Millisecond)
 	bar.Set(pb.Bytes, true)
-	g, err := goup.New(c.ServerUrl, c.FilePath, c.Rename, c.BearerToken, &http.Client{}, chunkSize, &pbProgress{bar: bar})
+	g, err := goup.New(c.ServerUrl,
+		goup.WithFullPath(c.FilePath),
+		goup.WithRename(c.Rename),
+		goup.WithBearer(c.BearerToken),
+		goup.WithChunkSize(chunkSize),
+		goup.WithProgress(&pbProgress{bar: bar}))
 	if err != nil {
 		log.Fatalf("new goup client: %v", err)
 	}

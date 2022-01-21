@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -27,8 +28,8 @@ const (
 	ContentSha256 = "Content-Sha256"
 )
 
-// Progressing is a progressing bar interface.
-type Progressing interface {
+// Progress is a progress bar interface.
+type Progress interface {
 	Start(value uint64)
 	Add(value uint64)
 	Finish()
@@ -87,6 +88,9 @@ func readChunk(fullPath string, partFrom, partTo uint64) ([]byte, error) {
 	}
 	chunk := make([]byte, partTo-partFrom)
 	if n, err := f.Read(chunk); err != nil {
+		if errors.Is(err, io.EOF) {
+			return chunk, nil
+		}
 		return nil, fmt.Errorf("read file %s error: %w", fullPath, err)
 	} else if n < int(partTo-partFrom) {
 		return nil, fmt.Errorf("read file %s real %d < expected %d", fullPath, n, partTo-partFrom)
