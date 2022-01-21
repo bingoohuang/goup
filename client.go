@@ -143,11 +143,11 @@ func (c *Client) initDownload() error {
 	if err != nil {
 		return fmt.Errorf("parse Content-Disposition error: %w", err)
 	}
-	if err := ensureDir(ServerFileStorage.Path); err != nil {
+	if err := ensureDir(FileStorage.Path); err != nil {
 		return err
 	}
 
-	c.fullPath = filepath.Join(ServerFileStorage.Path, params["filename"])
+	c.fullPath = filepath.Join(FileStorage.Path, params["filename"])
 	c.TotalSize = cr.TotalSize
 	c.wg.Add(1)
 

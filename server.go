@@ -1,45 +1,51 @@
 package goup
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"github.com/bingoohuang/gg/pkg/jsoni"
 )
 
 type fileStorage struct {
 	Path string
 }
 
-// ServerFileStorage settings.
+// FileStorage settings.
 // When finished uploading with success files are stored inside Path config.
 // While uploading temporary files are stored inside TempPath directory.
-var ServerFileStorage = fileStorage{
+var FileStorage = fileStorage{
 	Path: "./.goup-files",
 }
 
 // InitServer initializes the server.
 func InitServer() error {
-	return ensureDir(ServerFileStorage.Path)
+	return ensureDir(FileStorage.Path)
 }
 
 // ServerHandle is main request/response handler for HTTP server.
 func ServerHandle(chunkSize uint64) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		contentRange := r.Header.Get(ContentRange)
+		cr := r.Header.Get(ContentRange)
 
 		switch {
-		case r.URL.Path == "/" && contentRange != "":
-			if err := doUploadHandle(w, r, contentRange); err != nil {
+		case r.URL.Path == "/" && cr != "":
+			if err := doUploadHandle(w, r, cr); err != nil {
 				log.Printf("uploading error: %v", err)
 				w.WriteHeader(http.StatusInternalServerError)
 				_, _ = w.Write([]byte(err.Error()))
 			}
+		case r.URL.Path == "/" && r.Method == http.MethodGet:
+			servList(w)
 		case r.Method == http.MethodGet: // may be downloads
-			if status := serveDownload(w, r, contentRange, chunkSize); status > 0 {
+			if status := serveDownload(w, r, cr, chunkSize); status > 0 {
 				w.WriteHeader(status)
 			}
 		default:
@@ -48,8 +54,36 @@ func ServerHandle(chunkSize uint64) http.HandlerFunc {
 	}
 }
 
+// Entry is the file item for list.
+type Entry struct {
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+}
+
+func servList(w http.ResponseWriter) {
+	var entries []Entry
+	if err := filepath.WalkDir(FileStorage.Path, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+
+		stat, err := d.Info()
+		if err != nil {
+			return err
+		}
+		entries = append(entries, Entry{
+			Name: d.Name(),
+			Size: stat.Size(),
+		})
+		return nil
+	}); err != nil {
+		log.Printf("walk dir %s, error: %v", FileStorage.Path, err)
+	}
+	_ = jsoni.NewEncoder(w).Encode(context.Background(), entries)
+}
+
 func serveDownload(w http.ResponseWriter, r *http.Request, contentRange string, chunkSize uint64) int {
-	fullPath := filepath.Join(ServerFileStorage.Path, "."+r.URL.Path)
+	fullPath := filepath.Join(FileStorage.Path, "."+r.URL.Path)
 	stat, err := os.Stat(fullPath)
 	if os.IsNotExist(err) {
 		return http.StatusNotFound
@@ -104,7 +138,7 @@ func doUploadHandle(w http.ResponseWriter, r *http.Request, contentRange string)
 	}
 
 	filename := params["filename"]
-	fullPath := filepath.Join(ServerFileStorage.Path, filename)
+	fullPath := filepath.Join(FileStorage.Path, filename)
 
 	if sum := r.Header.Get(ContentSha256); r.Method == http.MethodGet && sum != "" {
 		if old := readChecksum(fullPath, cr.From, cr.To); old == sum {
