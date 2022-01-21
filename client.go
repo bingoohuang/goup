@@ -27,6 +27,7 @@ type Client struct {
 	contentDisposition string
 	bearer             string
 	progress           Progress
+	coroutines         int
 }
 
 // GetParts get the number of chunk parts.
@@ -38,9 +39,10 @@ type Opt struct {
 	ChunkSize uint64
 	Progress
 	*http.Client
-	Rename   string
-	Bearer   string
-	FullPath string
+	Rename     string
+	Bearer     string
+	FullPath   string
+	Coroutines int
 }
 
 type OptFn func(*Opt)
@@ -62,6 +64,9 @@ func WithBearer(v string) OptFn { return func(c *Opt) { c.Bearer = v } }
 
 // WithFullPath set FullPath.
 func WithFullPath(v string) OptFn { return func(c *Opt) { c.FullPath = v } }
+
+// WithCoroutines set Coroutines.
+func WithCoroutines(v int) OptFn { return func(c *Opt) { c.Coroutines = v } }
 
 // New creates new instance of Client.
 func New(url string, fns ...OptFn) (*Client, error) {
@@ -95,6 +100,7 @@ func New(url string, fns ...OptFn) (*Client, error) {
 		chunkSize:          opt.ChunkSize,
 		bearer:             bearerPrefix + opt.Bearer,
 		progress:           opt.Progress,
+		coroutines:         opt.Coroutines,
 	}
 	if err := g.init(); err != nil {
 		return nil, err
@@ -166,7 +172,6 @@ func (c *Client) initUpload() error {
 	}
 
 	c.TotalSize = uint64(fileStat.Size())
-
 	c.wg.Add(1)
 
 	go func() {
@@ -187,12 +192,17 @@ func (c *Client) initUpload() error {
 }
 
 func (c *Client) download() error {
-	for i := uint64(0); i < c.GetParts(); i++ {
-		if err := c.downloadChunk(i); err != nil {
-			return err
+	if c.coroutines <= 0 {
+		for i := uint64(0); i < c.GetParts(); i++ {
+			if err := c.downloadChunk(i); err != nil {
+				return err
+			}
 		}
+
+		return nil
 	}
 
+	c.goJobs("download", c.downloadChunk)
 	return nil
 }
 
@@ -231,13 +241,42 @@ func (c *Client) downloadChunk(i uint64) error {
 	return writeChunk(c.fullPath, rr0.Body, cr)
 }
 
-func (c *Client) upload() error {
-	for i := uint64(0); i < c.GetParts(); i++ {
-		if err := c.uploadChunk(i); err != nil {
-			return err
-		}
+func (c *Client) goJobs(operation string, job func(i uint64) error) {
+	fnCh := make(chan uint64)
+	var wg sync.WaitGroup
+	for i := 0; i < c.coroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			for idx := range fnCh {
+				if err := job(idx); err != nil {
+					log.Printf("%s chunk %d: %v", operation, idx, err)
+				}
+			}
+		}()
 	}
 
+	for i := uint64(0); i < c.GetParts(); i++ {
+		fnCh <- i
+	}
+	close(fnCh)
+
+	wg.Wait()
+}
+
+func (c *Client) upload() error {
+	if c.coroutines <= 0 {
+		for i := uint64(0); i < c.GetParts(); i++ {
+			if err := c.uploadChunk(i); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	c.goJobs("upload", c.uploadChunk)
 	return nil
 }
 

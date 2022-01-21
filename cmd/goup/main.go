@@ -15,6 +15,7 @@ import (
 
 type Arg struct {
 	ChunkSize   int    `flag:",c" val:"10"`
+	Coroutines  int    `flag:",t"`
 	ServerUrl   string `flag:",u"`
 	FilePath    string `flag:",f"`
 	Rename      string `flag:",r"`
@@ -29,7 +30,8 @@ func (a Arg) Usage() string {
 	return fmt.Sprintf(`
 Usage of goup:
   -b string bearer token for client or server, auto for server to generate a random one
-  -c int chunk size  for client, unit MB (default 10)
+  -c int chunk size for client, unit MB (default 10)
+  -t int co-routins for client
   -f string upload file path for client
   -p int listening port for server
   -r string rename to another filename
@@ -81,7 +83,9 @@ func main() {
 		goup.WithRename(c.Rename),
 		goup.WithBearer(c.BearerToken),
 		goup.WithChunkSize(chunkSize),
-		goup.WithProgress(&pbProgress{bar: bar}))
+		goup.WithProgress(&pbProgress{bar: bar}),
+		goup.WithCoroutines(c.Coroutines),
+	)
 	if err != nil {
 		log.Fatalf("new goup client: %v", err)
 	}
