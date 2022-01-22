@@ -262,7 +262,17 @@ func (c *Client) downloadChunk(i uint64) error {
 		return err
 	}
 
-	data, err := Decrypt(body.Bytes(), c.sessionKey)
+	salt, err := base64.RawURLEncoding.DecodeString(q.Header.Get(ContentSalt))
+	if err != nil {
+		return err
+	}
+
+	key, _, err := NewKey(c.sessionKey, salt)
+	if err != nil {
+		return err
+	}
+
+	data, err := Decrypt(body.Bytes(), key)
 	if err != nil {
 		return fmt.Errorf("failed to decrypt: %w", err)
 	}
@@ -349,11 +359,7 @@ func (c *Client) setupSessionKey() error {
 	}
 	r.Header.Set(SessionID, c.ID)
 	r.Header.Set(Authorization, c.bearer)
-	salt := genSalt()
-	base64fn := base64.RawURLEncoding.EncodeToString
-	baseA := base64fn(a.Bytes())
-	baseSalt := base64fn(salt)
-	r.Header.Set(ContentCurve, baseA+"/"+baseSalt)
+	r.Header.Set(ContentCurve, base64.RawURLEncoding.EncodeToString(a.Bytes()))
 	q, err := c.client.Do(r)
 	if err != nil {
 		return err
@@ -374,10 +380,7 @@ func (c *Client) setupSessionKey() error {
 	if err != nil {
 		return err
 	}
-	if c.sessionKey, _, err = NewKey(ak, salt); err != nil {
-		return fmt.Errorf("new key error: %w", err)
-	}
-
+	c.sessionKey = ak
 	return nil
 }
 
@@ -394,7 +397,13 @@ func (c *Client) chunkUpload(part []byte, contentRange string) (string, error) {
 }
 
 func (c *Client) chunkTransfer(part []byte, contentRange string, err error) (string, error) {
-	data, err := Encrypt(part, c.sessionKey)
+	salt := genSalt()
+	key, _, err := NewKey(c.sessionKey, salt)
+	if err != nil {
+		return "", err
+	}
+
+	data, err := Encrypt(part, key)
 	if err != nil {
 		return "", fmt.Errorf("encrypt data error: %w", err)
 	}
@@ -409,6 +418,7 @@ func (c *Client) chunkTransfer(part []byte, contentRange string, err error) (str
 	r.Header.Set(ContentType, "application/octet-stream")
 	r.Header.Set(ContentDisposition, c.contentDisposition)
 	r.Header.Set(ContentRange, contentRange)
+	r.Header.Set(ContentSalt, base64.RawURLEncoding.EncodeToString(salt))
 	q, err := c.client.Do(r)
 	if err != nil {
 		return "", err

@@ -61,9 +61,25 @@ func ServerHandle(chunkSize uint64, code string) http.HandlerFunc {
 
 var pakeCache = sync.Map{}
 
+func setSessionKey(sessionID string, sessionKey []byte) {
+	pakeCache.Store(sessionID, sessionKey)
+}
+
+func getSessionKey(sessionID string) []byte {
+	sessionKey, ok := pakeCache.Load(sessionID)
+	if !ok {
+		return nil
+	}
+
+	if d, ok := sessionKey.([]byte); ok {
+		return d
+	}
+
+	return nil
+}
+
 func servePake(w http.ResponseWriter, sessionID, code, contentCurve string) error {
-	curve, salt := Cut(contentCurve, "/")
-	a, err := base64.RawURLEncoding.DecodeString(curve)
+	a, err := base64.RawURLEncoding.DecodeString(contentCurve)
 	if err != nil {
 		return fmt.Errorf("base64 decode error: %w", err)
 	}
@@ -78,20 +94,12 @@ func servePake(w http.ResponseWriter, sessionID, code, contentCurve string) erro
 	}
 
 	bb := b.Bytes()
-	saltRaw, err := base64.RawURLEncoding.DecodeString(salt)
-	if err != nil {
-		return err
-	}
 	bk, err := b.SessionKey()
 	if err != nil {
 		return err
 	}
-	sessionKey, _, err := NewKey(bk, saltRaw)
-	if err != nil {
-		return err
-	}
 
-	pakeCache.Store(sessionID, sessionKey)
+	setSessionKey(sessionID, bk)
 	w.Header().Set(ContentCurve, base64.RawURLEncoding.EncodeToString(bb))
 	return nil
 }
@@ -160,8 +168,14 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, contentRan
 		return http.StatusInternalServerError
 	}
 
-	sessionKey, _ := pakeCache.Load(sessionID)
-	data, err := Encrypt(chunk, sessionKey.([]byte))
+	salt := genSalt()
+	key, _, err := NewKey(getSessionKey(sessionID), salt)
+	if err != nil {
+		log.Printf("new key error: %v", err)
+		return http.StatusInternalServerError
+	}
+
+	data, err := Encrypt(chunk, key)
 	if err != nil {
 		log.Printf("encrypt chunk error: %v", err)
 		return http.StatusInternalServerError
@@ -170,6 +184,7 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, contentRan
 	w.Header().Set(ContentType, "application/octet-stream")
 	w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 	w.Header().Set(ContentRange, contentRange)
+	w.Header().Set(ContentSalt, base64.RawURLEncoding.EncodeToString(salt))
 	log.Printf("send file %s with session %s, range %s", filename, r.Header.Get(SessionID), contentRange)
 
 	_, _ = w.Write(data)
@@ -206,8 +221,12 @@ func serveUpload(w http.ResponseWriter, r *http.Request, contentRange, sessionID
 		return err
 	}
 
-	sessionKey, _ := pakeCache.Load(sessionID)
-	data, err := Decrypt(body.Bytes(), sessionKey.([]byte))
+	salt, err := base64.RawURLEncoding.DecodeString(r.Header.Get(ContentSalt))
+	if err != nil {
+		return err
+	}
+	key, _, err := NewKey(getSessionKey(sessionID), salt)
+	data, err := Decrypt(body.Bytes(), key)
 	if err != nil {
 		return fmt.Errorf("failed to decrypt: %w", err)
 	}

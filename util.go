@@ -32,6 +32,8 @@ const (
 	ContentSha256 = "Content-Sha256"
 	// ContentCurve is the header name for Content-Curve
 	ContentCurve = "Content-Curve"
+	// ContentSalt is the header name for Content-Salt
+	ContentSalt = "Content-Salt"
 )
 
 // Progress is a progress bar interface.
