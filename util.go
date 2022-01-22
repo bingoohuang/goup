@@ -13,6 +13,10 @@ import (
 	"strings"
 )
 
+// RootDir settings.
+// When finished uploading with success files are stored inside it.
+var RootDir = "./.goup"
+
 const (
 	// SessionID is the header name for Session-ID
 	SessionID = "Session-ID"
@@ -26,6 +30,8 @@ const (
 	ContentType = "Content-Type"
 	// ContentSha256 is the header name for Content-Sha256
 	ContentSha256 = "Content-Sha256"
+	// ContentCurve is the header name for Content-Curve
+	ContentCurve = "Content-Curve"
 )
 
 // Progress is a progress bar interface.
@@ -70,6 +76,24 @@ func writeChunk(fullPath string, chunk io.Reader, cr *chunkRange) error {
 	}
 
 	return nil
+}
+
+func genSalt() []byte {
+	salt := make([]byte, 8)
+	if _, err := rand.Read(salt); err != nil {
+		log.Printf("can't generate random numbers: %v", err)
+	}
+	return salt
+}
+
+// Cut cuts the s string into two strings by separator sep.
+func Cut(s, sep string) (a, b string) {
+	idx := strings.Index(s, sep)
+	if idx < 0 {
+		return s, ""
+	}
+
+	return s[:idx], s[idx+1:]
 }
 
 func readChunk(fullPath string, partFrom, partTo uint64) ([]byte, error) {

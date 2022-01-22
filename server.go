@@ -1,7 +1,9 @@
 package goup
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"io/fs"
@@ -10,13 +12,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
+
+	"github.com/schollz/pake/v3"
 
 	"github.com/bingoohuang/gg/pkg/jsoni"
 )
-
-// RootDir settings.
-// When finished uploading with success files are stored inside it.
-var RootDir = "./.goup-files"
 
 // InitServer initializes the server.
 func InitServer() error {
@@ -24,13 +25,24 @@ func InitServer() error {
 }
 
 // ServerHandle is main request/response handler for HTTP server.
-func ServerHandle(chunkSize uint64) http.HandlerFunc {
+func ServerHandle(chunkSize uint64, code string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		sessionID := r.Header.Get(SessionID)
+		if sessionID == "" {
+			w.WriteHeader(http.StatusNotFound)
+		}
+
 		cr := r.Header.Get(ContentRange)
+		contentCurve := r.Header.Get(ContentCurve)
 
 		switch {
+		case contentCurve != "" && r.Method == http.MethodPost:
+			if err := servePake(w, sessionID, code, contentCurve); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(err.Error()))
+			}
 		case r.URL.Path == "/" && cr != "":
-			if err := doUploadHandle(w, r, cr); err != nil {
+			if err := serveUpload(w, r, cr, sessionID); err != nil {
 				log.Printf("uploading error: %v", err)
 				w.WriteHeader(http.StatusInternalServerError)
 				_, _ = w.Write([]byte(err.Error()))
@@ -38,13 +50,50 @@ func ServerHandle(chunkSize uint64) http.HandlerFunc {
 		case r.URL.Path == "/" && r.Method == http.MethodGet:
 			servList(w)
 		case r.Method == http.MethodGet: // may be downloads
-			if status := serveDownload(w, r, cr, chunkSize); status > 0 {
+			if status := serveDownload(w, r, sessionID, cr, chunkSize); status > 0 {
 				w.WriteHeader(status)
 			}
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}
+}
+
+var pakeCache = sync.Map{}
+
+func servePake(w http.ResponseWriter, sessionID, code, contentCurve string) error {
+	curve, salt := Cut(contentCurve, "/")
+	a, err := base64.RawURLEncoding.DecodeString(curve)
+	if err != nil {
+		return fmt.Errorf("base64 decode error: %w", err)
+	}
+
+	b, err := pake.InitCurve([]byte(code), 1, "siec")
+	if err != nil {
+		return fmt.Errorf("init curve error: %w", err)
+	}
+
+	if err := b.Update(a); err != nil {
+		return fmt.Errorf("update b error: %w", err)
+	}
+
+	bb := b.Bytes()
+	saltRaw, err := base64.RawURLEncoding.DecodeString(salt)
+	if err != nil {
+		return err
+	}
+	bk, err := b.SessionKey()
+	if err != nil {
+		return err
+	}
+	sessionKey, _, err := NewKey(bk, saltRaw)
+	if err != nil {
+		return err
+	}
+
+	pakeCache.Store(sessionID, sessionKey)
+	w.Header().Set(ContentCurve, base64.RawURLEncoding.EncodeToString(bb))
+	return nil
 }
 
 // Entry is the file item for list.
@@ -75,7 +124,7 @@ func servList(w http.ResponseWriter) {
 	_ = jsoni.NewEncoder(w).Encode(context.Background(), entries)
 }
 
-func serveDownload(w http.ResponseWriter, r *http.Request, contentRange string, chunkSize uint64) int {
+func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, contentRange string, chunkSize uint64) int {
 	fullPath := filepath.Join(RootDir, "."+r.URL.Path)
 	stat, err := os.Stat(fullPath)
 	if os.IsNotExist(err) {
@@ -111,16 +160,23 @@ func serveDownload(w http.ResponseWriter, r *http.Request, contentRange string, 
 		return http.StatusInternalServerError
 	}
 
+	sessionKey, _ := pakeCache.Load(sessionID)
+	data, err := Encrypt(chunk, sessionKey.([]byte))
+	if err != nil {
+		log.Printf("encrypt chunk error: %v", err)
+		return http.StatusInternalServerError
+	}
+
 	w.Header().Set(ContentType, "application/octet-stream")
 	w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 	w.Header().Set(ContentRange, contentRange)
 	log.Printf("send file %s with session %s, range %s", filename, r.Header.Get(SessionID), contentRange)
 
-	_, _ = w.Write(chunk)
+	_, _ = w.Write(data)
 	return 0
 }
 
-func doUploadHandle(w http.ResponseWriter, r *http.Request, contentRange string) error {
+func serveUpload(w http.ResponseWriter, r *http.Request, contentRange, sessionID string) error {
 	cr, err := parseContentRange(contentRange)
 	if err != nil {
 		return fmt.Errorf("parse contentRange %s error: %w", contentRange, err)
@@ -145,7 +201,18 @@ func doUploadHandle(w http.ResponseWriter, r *http.Request, contentRange string)
 		return fmt.Errorf("invalid http method")
 	}
 
-	if err := writeChunk(fullPath, r.Body, cr); err != nil {
+	var body bytes.Buffer
+	if _, err := io.Copy(&body, r.Body); err != nil {
+		return err
+	}
+
+	sessionKey, _ := pakeCache.Load(sessionID)
+	data, err := Decrypt(body.Bytes(), sessionKey.([]byte))
+	if err != nil {
+		return fmt.Errorf("failed to decrypt: %w", err)
+	}
+
+	if err := writeChunk(fullPath, bytes.NewReader(data), cr); err != nil {
 		return fmt.Errorf("open file %s error: %w", fullPath, err)
 	}
 
@@ -153,7 +220,7 @@ func doUploadHandle(w http.ResponseWriter, r *http.Request, contentRange string)
 		return fmt.Errorf("write file %s error: %w", fullPath, err)
 	}
 
-	log.Printf("recv file %s with session %s, range %s", filename, r.Header.Get(SessionID), contentRange)
+	log.Printf("recv file %s with session %s, range %s", filename, sessionID, contentRange)
 	return nil
 }
 

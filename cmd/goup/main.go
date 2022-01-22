@@ -14,6 +14,7 @@ import (
 )
 
 type Arg struct {
+	Code        string `flag:"code" val:"abc123"`
 	ChunkSize   int    `flag:",c" val:"10"`
 	Coroutines  int    `flag:",t"`
 	ServerUrl   string `flag:",u"`
@@ -36,6 +37,7 @@ Usage of goup:
   -p int listening port for server
   -r string rename to another filename
   -u string server upload url for client to connect to
+  -code string codephrase
   -v bool show version
   -init bool create init ctl shell script`)
 }
@@ -68,7 +70,7 @@ func main() {
 		if err := goup.InitServer(); err != nil {
 			log.Fatalf("init goup server: %v", err)
 		}
-		http.HandleFunc("/", goup.Bearer(c.BearerToken, goup.ServerHandle(chunkSize)))
+		http.HandleFunc("/", goup.Bearer(c.BearerToken, goup.ServerHandle(chunkSize, c.Code)))
 		log.Printf("Listening on %d", c.Port)
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", c.Port), nil); err != nil {
 			log.Printf("listen: %v", err)
@@ -85,6 +87,7 @@ func main() {
 		goup.WithChunkSize(chunkSize),
 		goup.WithProgress(&pbProgress{bar: bar}),
 		goup.WithCoroutines(c.Coroutines),
+		goup.WithCode(c.Code),
 	)
 	if err != nil {
 		log.Fatalf("new goup client: %v", err)

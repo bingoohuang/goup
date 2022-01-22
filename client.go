@@ -2,7 +2,9 @@ package goup
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"math"
@@ -11,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/schollz/pake/v3"
 
 	"github.com/bingoohuang/gg/pkg/rest"
 )
@@ -26,8 +30,10 @@ type Client struct {
 	wg                 sync.WaitGroup
 	contentDisposition string
 	bearer             string
+	code               string
 	progress           Progress
 	coroutines         int
+	sessionKey         []byte
 }
 
 // GetParts get the number of chunk parts.
@@ -43,6 +49,7 @@ type Opt struct {
 	Rename     string
 	Bearer     string
 	FullPath   string
+	Code       string
 	Coroutines int
 }
 
@@ -66,6 +73,9 @@ func WithBearer(v string) OptFn { return func(c *Opt) { c.Bearer = v } }
 
 // WithFullPath set FullPath.
 func WithFullPath(v string) OptFn { return func(c *Opt) { c.FullPath = v } }
+
+// WithCode set Code.
+func WithCode(v string) OptFn { return func(c *Opt) { c.Code = v } }
 
 // WithCoroutines set Coroutines.
 func WithCoroutines(v int) OptFn { return func(c *Opt) { c.Coroutines = v } }
@@ -103,6 +113,7 @@ func New(url string, fns ...OptFn) (*Client, error) {
 		bearer:             bearerPrefix + opt.Bearer,
 		progress:           opt.Progress,
 		coroutines:         opt.Coroutines,
+		code:               opt.Code,
 	}
 	if err := g.init(); err != nil {
 		return nil, err
@@ -112,7 +123,11 @@ func New(url string, fns ...OptFn) (*Client, error) {
 }
 
 // Init method initializes upload
-func (c *Client) init() error {
+func (c *Client) init() (err error) {
+	if err := c.setupSessionKey(); err != nil {
+		return err
+	}
+
 	if c.fullPath != "" { // for upload
 		return c.initUpload()
 	}
@@ -121,17 +136,18 @@ func (c *Client) init() error {
 }
 
 func (c *Client) initDownload() error {
-	r0, err := http.NewRequest(http.MethodGet, c.url, nil)
+	r, err := http.NewRequest(http.MethodGet, c.url, nil)
 	if err != nil {
 		return fmt.Errorf("http.NewRequest %s: %w", c.url, err)
 	}
-	r0.Header.Set(Authorization, c.bearer)
-	rr0, err := c.client.Do(r0)
+	r.Header.Set(SessionID, c.ID)
+	r.Header.Set(Authorization, c.bearer)
+	q, err := c.client.Do(r)
 	if err != nil {
 		return err
 	}
-	contentRange := rr0.Header.Get(ContentRange)
-	if rr0.StatusCode != http.StatusOK || contentRange == "" {
+	contentRange := q.Header.Get(ContentRange)
+	if q.StatusCode != http.StatusOK || contentRange == "" {
 		return fmt.Errorf("no file to donwload or upload")
 	}
 
@@ -144,7 +160,7 @@ func (c *Client) initDownload() error {
 		return err
 	}
 
-	_, params, err := mime.ParseMediaType(rr0.Header.Get(ContentDisposition))
+	_, params, err := mime.ParseMediaType(q.Header.Get(ContentDisposition))
 	if err != nil {
 		return fmt.Errorf("parse Content-Disposition error: %w", err)
 	}
@@ -221,27 +237,37 @@ func (c *Client) downloadChunk(i uint64) error {
 		return fmt.Errorf("read %s: %w", c.fullPath, err)
 	}
 
-	r0, err := http.NewRequest(http.MethodGet, c.url, nil)
-	r0.Header.Set(Authorization, c.bearer)
-	r0.Header.Set(ContentRange, cr.createContentRange())
-	r0.Header.Set(ContentDisposition, c.contentDisposition)
-	r0.Header.Set(SessionID, c.ID)
-	r0.Header.Set(ContentSha256, checksum(chunk))
-	rr0, err := c.client.Do(r0)
+	r, err := http.NewRequest(http.MethodGet, c.url, nil)
+	r.Header.Set(SessionID, c.ID)
+	r.Header.Set(Authorization, c.bearer)
+	r.Header.Set(ContentRange, cr.createContentRange())
+	r.Header.Set(ContentDisposition, c.contentDisposition)
+	r.Header.Set(ContentSha256, checksum(chunk))
+	q, err := c.client.Do(r)
 	if err != nil {
 		return err
 	}
-	defer Close(rr0.Body)
+	defer Close(q.Body)
 
 	c.progress.Add(partSize)
-	if rr0.StatusCode == http.StatusNotModified {
+	if q.StatusCode == http.StatusNotModified {
 		return nil
 	}
-	if rr0.StatusCode != http.StatusOK {
-		return fmt.Errorf("bad status code: %d", rr0.StatusCode)
+	if q.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status code: %d", q.StatusCode)
 	}
 
-	return writeChunk(c.fullPath, rr0.Body, cr)
+	var body bytes.Buffer
+	if _, err := io.Copy(&body, q.Body); err != nil {
+		return err
+	}
+
+	data, err := Decrypt(body.Bytes(), c.sessionKey)
+	if err != nil {
+		return fmt.Errorf("failed to decrypt: %w", err)
+	}
+
+	return writeChunk(c.fullPath, bytes.NewReader(data), cr)
 }
 
 func (c *Client) goJobs(operation string, job func(i uint64) error) {
@@ -312,50 +338,114 @@ func (c *Client) Wait() {
 	c.wg.Wait()
 }
 
-func (c *Client) chunkUpload(part []byte, contentRange string) (string, error) {
-	r0, err := http.NewRequest(http.MethodGet, c.url, nil)
+func (c *Client) setupSessionKey() error {
+	a, err := pake.InitCurve([]byte(c.code), 0, "siec")
+	if err != nil {
+		return fmt.Errorf("init curve failed: %w", err)
+	}
+	r, err := http.NewRequest(http.MethodPost, c.url, nil)
+	if err != nil {
+		return err
+	}
+	r.Header.Set(SessionID, c.ID)
+	r.Header.Set(Authorization, c.bearer)
+	salt := genSalt()
+	base64fn := base64.RawURLEncoding.EncodeToString
+	baseA := base64fn(a.Bytes())
+	baseSalt := base64fn(salt)
+	r.Header.Set(ContentCurve, baseA+"/"+baseSalt)
+	q, err := c.client.Do(r)
+	if err != nil {
+		return err
+	}
+	if q.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status code: %d", q.StatusCode)
+	}
 
-	r0.Header.Set(Authorization, c.bearer)
-	r0.Header.Set(ContentRange, contentRange)
-	r0.Header.Set(ContentDisposition, c.contentDisposition)
-	r0.Header.Set(SessionID, c.ID)
-	r0.Header.Set(ContentSha256, checksum(part))
-	rr0, err := c.client.Do(r0)
+	cc := q.Header.Get(ContentCurve)
+	b, err := base64.RawURLEncoding.DecodeString(cc)
+	if err != nil {
+		return fmt.Errorf("base64 decode error: %w", err)
+	} else if err := a.Update(b); err != nil {
+		return fmt.Errorf("update b error: %w", err)
+	}
+
+	ak, err := a.SessionKey()
+	if err != nil {
+		return err
+	}
+	if c.sessionKey, _, err = NewKey(ak, salt); err != nil {
+		return fmt.Errorf("new key error: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Client) chunkUpload(part []byte, contentRange string) (string, error) {
+	notModified, err := c.chunkUploadChecksum(part, contentRange)
 	if err != nil {
 		return "", err
 	}
-	if rr0.StatusCode == http.StatusNotModified {
+	if notModified {
 		return contentRange, nil
 	}
 
-	if rr0.StatusCode != 200 {
-		return "", fmt.Errorf("bad status code: %d", rr0.StatusCode)
+	return c.chunkTransfer(part, contentRange, err)
+}
+
+func (c *Client) chunkTransfer(part []byte, contentRange string, err error) (string, error) {
+	data, err := Encrypt(part, c.sessionKey)
+	if err != nil {
+		return "", fmt.Errorf("encrypt data error: %w", err)
 	}
 
-	r, err := http.NewRequest(http.MethodPost, c.url, bytes.NewBuffer(part))
+	r, err := http.NewRequest(http.MethodPost, c.url, bytes.NewBuffer(data))
 	if err != nil {
 		return "", err
 	}
 
+	r.Header.Set(SessionID, c.ID)
 	r.Header.Set(Authorization, c.bearer)
 	r.Header.Set(ContentType, "application/octet-stream")
 	r.Header.Set(ContentDisposition, c.contentDisposition)
 	r.Header.Set(ContentRange, contentRange)
-	r.Header.Set(SessionID, c.ID)
-	rr, err := c.client.Do(r)
+	q, err := c.client.Do(r)
 	if err != nil {
 		return "", err
 	}
-	defer Close(rr.Body)
+	defer Close(q.Body)
 
-	body, err := ioutil.ReadAll(rr.Body)
+	body, err := ioutil.ReadAll(q.Body)
 	if err != nil {
 		return "", err
 	}
 
-	if rr.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("bad status code: %d", rr.StatusCode)
+	if q.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("bad status code: %d", q.StatusCode)
 	}
 
 	return string(body), nil
+}
+
+func (c *Client) chunkUploadChecksum(part []byte, contentRange string) (bool, error) {
+	r, err := http.NewRequest(http.MethodGet, c.url, nil)
+
+	r.Header.Set(SessionID, c.ID)
+	r.Header.Set(Authorization, c.bearer)
+	r.Header.Set(ContentRange, contentRange)
+	r.Header.Set(ContentDisposition, c.contentDisposition)
+	r.Header.Set(ContentSha256, checksum(part))
+	q, err := c.client.Do(r)
+	if err != nil {
+		return false, err
+	}
+	if q.StatusCode == http.StatusNotModified {
+		return true, nil
+	}
+
+	if q.StatusCode != 200 {
+		return false, fmt.Errorf("bad status code: %d", q.StatusCode)
+	}
+
+	return false, nil
 }
