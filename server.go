@@ -14,20 +14,13 @@ import (
 	"github.com/bingoohuang/gg/pkg/jsoni"
 )
 
-type fileStorage struct {
-	Path string
-}
-
-// FileStorage settings.
-// When finished uploading with success files are stored inside Path config.
-// While uploading temporary files are stored inside TempPath directory.
-var FileStorage = fileStorage{
-	Path: "./.goup-files",
-}
+// RootDir settings.
+// When finished uploading with success files are stored inside it.
+var RootDir = "./.goup-files"
 
 // InitServer initializes the server.
 func InitServer() error {
-	return ensureDir(FileStorage.Path)
+	return ensureDir(RootDir)
 }
 
 // ServerHandle is main request/response handler for HTTP server.
@@ -62,7 +55,7 @@ type Entry struct {
 
 func servList(w http.ResponseWriter) {
 	var entries []Entry
-	if err := filepath.WalkDir(FileStorage.Path, func(p string, d fs.DirEntry, err error) error {
+	if err := filepath.WalkDir(RootDir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
@@ -77,13 +70,13 @@ func servList(w http.ResponseWriter) {
 		})
 		return nil
 	}); err != nil {
-		log.Printf("walk dir %s, error: %v", FileStorage.Path, err)
+		log.Printf("walk dir %s, error: %v", RootDir, err)
 	}
 	_ = jsoni.NewEncoder(w).Encode(context.Background(), entries)
 }
 
 func serveDownload(w http.ResponseWriter, r *http.Request, contentRange string, chunkSize uint64) int {
-	fullPath := filepath.Join(FileStorage.Path, "."+r.URL.Path)
+	fullPath := filepath.Join(RootDir, "."+r.URL.Path)
 	stat, err := os.Stat(fullPath)
 	if os.IsNotExist(err) {
 		return http.StatusNotFound
@@ -138,7 +131,7 @@ func doUploadHandle(w http.ResponseWriter, r *http.Request, contentRange string)
 	}
 
 	filename := params["filename"]
-	fullPath := filepath.Join(FileStorage.Path, filename)
+	fullPath := filepath.Join(RootDir, filename)
 
 	if sum := r.Header.Get(ContentSha256); r.Method == http.MethodGet && sum != "" {
 		if old := readChecksum(fullPath, cr.From, cr.To); old == sum {

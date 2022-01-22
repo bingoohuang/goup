@@ -139,15 +139,16 @@ func (c *Client) initDownload() error {
 	if err != nil {
 		return fmt.Errorf("parse contentRange %s error: %w", contentRange, err)
 	}
+
+	if err := ensureDir(RootDir); err != nil {
+		return err
+	}
+
 	_, params, err := mime.ParseMediaType(rr0.Header.Get(ContentDisposition))
 	if err != nil {
 		return fmt.Errorf("parse Content-Disposition error: %w", err)
 	}
-	if err := ensureDir(FileStorage.Path); err != nil {
-		return err
-	}
-
-	c.fullPath = filepath.Join(FileStorage.Path, params["filename"])
+	c.fullPath = filepath.Join(RootDir, params["filename"])
 	c.TotalSize = cr.TotalSize
 	c.wg.Add(1)
 
