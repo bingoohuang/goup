@@ -76,7 +76,7 @@ func main() {
 		return
 	}
 	bar := pb.New(0)
-	bar.SetRefreshRate(time.Millisecond)
+	bar.SetRefreshRate(100 * time.Millisecond)
 	bar.Set(pb.Bytes, true)
 	g, err := goup.New(c.ServerUrl,
 		goup.WithFullPath(c.FilePath),
