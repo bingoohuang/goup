@@ -155,7 +155,7 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, contentRan
 		return http.StatusInternalServerError
 	}
 
-	if sum := r.Header.Get(ContentSha256); sum != "" {
+	if sum := r.Header.Get(ContentChecksum); sum != "" {
 		if old := readChecksum(fullPath, cr.From, cr.To); old == sum {
 			log.Printf("304 file %s with session %s, range %s", filename, r.Header.Get(SessionID), contentRange)
 			return http.StatusNotModified
@@ -204,7 +204,7 @@ func serveUpload(w http.ResponseWriter, r *http.Request, contentRange, sessionID
 	filename := params["filename"]
 	fullPath := filepath.Join(RootDir, filename)
 
-	if sum := r.Header.Get(ContentSha256); r.Method == http.MethodGet && sum != "" {
+	if sum := r.Header.Get(ContentChecksum); r.Method == http.MethodGet && sum != "" {
 		if old := readChecksum(fullPath, cr.From, cr.To); old == sum {
 			w.WriteHeader(http.StatusNotModified)
 		}

@@ -242,7 +242,7 @@ func (c *Client) downloadChunk(i uint64) error {
 	r.Header.Set(Authorization, c.bearer)
 	r.Header.Set(ContentRange, cr.createContentRange())
 	r.Header.Set(ContentDisposition, c.contentDisposition)
-	r.Header.Set(ContentSha256, checksum(chunk))
+	r.Header.Set(ContentChecksum, checksum(chunk))
 	q, err := c.client.Do(r)
 	if err != nil {
 		return err
@@ -327,8 +327,7 @@ func (c *Client) uploadChunk(i uint64) error {
 
 	c.progress.Add(partSize)
 
-	_, err = parseBodyAsSizeTransferred(responseBody)
-	if err != nil {
+	if _, err := parseContentRange(responseBody); err != nil {
 		return fmt.Errorf("parse body as size transferred %s: %w", responseBody, err)
 	}
 
@@ -444,7 +443,7 @@ func (c *Client) chunkUploadChecksum(part []byte, contentRange string) (bool, er
 	r.Header.Set(Authorization, c.bearer)
 	r.Header.Set(ContentRange, contentRange)
 	r.Header.Set(ContentDisposition, c.contentDisposition)
-	r.Header.Set(ContentSha256, checksum(part))
+	r.Header.Set(ContentChecksum, checksum(part))
 	q, err := c.client.Do(r)
 	if err != nil {
 		return false, err

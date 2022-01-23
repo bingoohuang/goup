@@ -28,8 +28,8 @@ const (
 	ContentDisposition = "Content-Disposition"
 	// ContentType is the header name for Content-Type
 	ContentType = "Content-Type"
-	// ContentSha256 is the header name for Content-Sha256
-	ContentSha256 = "Content-Sha256"
+	// ContentChecksum is the header name for Content-Checksum
+	ContentChecksum = "Content-Checksum"
 	// ContentCurve is the header name for Content-Curve
 	ContentCurve = "Content-Curve"
 	// ContentSalt is the header name for Content-Salt
@@ -187,12 +187,6 @@ func checksum(part []byte) string {
 	hash := sha256.New()
 	hash.Write(part)
 	return base64.RawURLEncoding.EncodeToString(hash.Sum(nil))
-}
-
-func parseBodyAsSizeTransferred(body string) (uint64, error) {
-	fromTo := strings.Split(body, "/")[0]
-	split := strings.Split(fromTo, "-")
-	return strconv.ParseUint(split[1], 10, 64)
 }
 
 func fileNotExists(filePath string) bool {
