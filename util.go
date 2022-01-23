@@ -1,6 +1,7 @@
 package goup
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -11,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kalafut/imohash"
+	"github.com/cespare/xxhash/v2"
 )
 
 // RootDir settings.
@@ -185,8 +186,9 @@ func parseContentRange(contentRange string) (c *chunkRange, err error) {
 }
 
 func checksum(part []byte) string {
-	s := imohash.Sum(part)
-	return base64.RawURLEncoding.EncodeToString(s[:])
+	h := xxhash.New()
+	io.Copy(h, bytes.NewReader(part))
+	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
 
 func fileNotExists(filePath string) bool {
