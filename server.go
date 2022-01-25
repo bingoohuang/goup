@@ -3,6 +3,7 @@ package goup
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -19,6 +20,9 @@ import (
 	"github.com/bingoohuang/gg/pkg/jsoni"
 )
 
+//go:embed index.html
+var indexHtml []byte
+
 // InitServer initializes the server.
 func InitServer() error {
 	return ensureDir(RootDir)
@@ -28,28 +32,44 @@ func InitServer() error {
 func ServerHandle(chunkSize uint64, code string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sessionID := r.Header.Get(SessionID)
-		if sessionID == "" {
-			w.WriteHeader(http.StatusNotFound)
-		}
-
 		cr := r.Header.Get(ContentRange)
 		contentCurve := r.Header.Get(ContentCurve)
 
 		switch {
+		case r.URL.Path == "/pushfile" && r.Method == http.MethodPost:
+			if err := servePushFile(w, r); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(err.Error()))
+			}
 		case contentCurve != "" && r.Method == http.MethodPost:
+			if sessionID == "" {
+				w.WriteHeader(http.StatusNotFound)
+			}
 			if err := servePake(w, sessionID, code, contentCurve); err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				_, _ = w.Write([]byte(err.Error()))
 			}
 		case r.URL.Path == "/" && cr != "":
+			if sessionID == "" {
+				w.WriteHeader(http.StatusNotFound)
+			}
 			if err := serveUpload(w, r, cr, sessionID); err != nil {
 				log.Printf("uploading error: %v", err)
 				w.WriteHeader(http.StatusInternalServerError)
 				_, _ = w.Write([]byte(err.Error()))
 			}
 		case r.URL.Path == "/" && r.Method == http.MethodGet:
-			servList(w)
+			if r.Header.Get("Accept") == "apllication/json" {
+				servList(w)
+			} else {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.Write(indexHtml)
+			}
+
 		case r.Method == http.MethodGet: // may be downloads
+			if sessionID == "" {
+				w.WriteHeader(http.StatusNotFound)
+			}
 			if status := serveDownload(w, r, sessionID, cr, chunkSize); status > 0 {
 				w.WriteHeader(status)
 			}
@@ -189,6 +209,21 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, contentRan
 
 	_, _ = w.Write(data)
 	return 0
+}
+
+func servePushFile(w http.ResponseWriter, r *http.Request) error {
+	fullPath := filepath.Join(RootDir, r.Header.Get("Content-Filename"))
+	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY, 0o755)
+	if err != nil {
+		return fmt.Errorf("open file %s error: %w", fullPath, err)
+	}
+	defer Close(f)
+
+	if _, err := io.Copy(f, r.Body); err != nil {
+		return fmt.Errorf("write file %s error: %w", fullPath, err)
+	}
+
+	return nil
 }
 
 func serveUpload(w http.ResponseWriter, r *http.Request, contentRange, sessionID string) error {

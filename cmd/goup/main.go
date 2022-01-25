@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/cheggaaa/pb/v3"
 	"log"
 	"net/http"
 	"time"
@@ -10,7 +11,6 @@ import (
 	"github.com/bingoohuang/gg/pkg/v"
 
 	"github.com/bingoohuang/goup"
-	"github.com/cheggaaa/pb/v3"
 )
 
 type Arg struct {
@@ -31,15 +31,15 @@ func (a Arg) Usage() string {
 	return fmt.Sprintf(`
 Usage of goup:
   -b string bearer token for client or server, auto for server to generate a random one
-  -c int chunk size for client, unit MB (default 10)
-  -t int co-routins for client
+  -c int    chunk size for client, unit MB (default 10)
+  -t int    co-routins for client
   -f string upload file path for client
-  -p int listening port for server
+  -p int    listening port for server
   -r string rename to another filename
   -u string server upload url for client to connect to
   -code string codephrase
-  -v bool show version
-  -init bool create init ctl shell script`)
+  -v    bool   show version
+  -init bool   create init ctl shell script`)
 }
 
 // VersionInfo is optional for customized version.
