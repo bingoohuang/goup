@@ -75,10 +75,6 @@ func writeChunk(fullPath string, chunk io.Reader, cr *chunkRange) error {
 		return fmt.Errorf("write file %s error: %w", fullPath, err)
 	}
 
-	if err := f.Sync(); err != nil {
-		return fmt.Errorf("sync file %s error: %w", fullPath, err)
-	}
-
 	return nil
 }
 

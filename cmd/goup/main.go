@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/cheggaaa/pb/v3"
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/cheggaaa/pb/v3"
 
 	"github.com/bingoohuang/gg/pkg/flagparse"
 	"github.com/bingoohuang/gg/pkg/v"

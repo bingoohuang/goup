@@ -223,6 +223,7 @@ func servePushFile(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("write file %s error: %w", fullPath, err)
 	}
 
+	log.Printf("file pushed %s", fullPath)
 	return nil
 }
 
