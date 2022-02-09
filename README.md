@@ -6,21 +6,30 @@ This is done by splitting large file into small chunks; whenever the upload of a
 the procedure completes. This allows uploads to automatically resume uploading after a network connection is lost, or
 program restarting either locally or to the server.
 
+## Features
+
+1. splitting large file into smaller chunks.
+2. uploading/downloading by HTTP.
+3. resume-able. chunk's hash will be checked before transfer.
+4. security data by AES-GCM based on PAKE.
+
 ![](_doc/img.png)
 
-### Usage
+## Usage
 
 ```shell
 $ goup -h                                                       
 Usage of goup:
   -b string bearer token for client or server, auto for server to generate a random one
-  -c int chunk size  for client, unit MB (default 10)
+  -c int    chunk size for client, unit MB (default 10)
+  -t int    co-routins for client
   -f string upload file path for client
-  -p int listening port for server
+  -p int    listening port for server
   -r string rename to another filename
   -u string server upload url for client to connect to
-  -v bool show version
-  -init bool create init ctl shell script
+  -code string codephrase
+  -v    bool   show version
+  -init bool   create init ctl shell script
 ```
 
 1. Installation `go install https://github.com/bingoohuang/goup`
@@ -68,7 +77,6 @@ $ sha256sum 246.png
 ```
 
 As you can see, even if you terminate the client uploading, you can resume uploading from last breakpoint.
-
 
 ```sh
 $ goup -u http://127.0.0.1:2110/246.png
