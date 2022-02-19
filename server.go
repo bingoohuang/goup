@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/schollz/pake/v3"
 
@@ -30,56 +31,74 @@ func InitServer() error {
 
 // ServerHandle is main request/response handler for HTTP server.
 func ServerHandle(chunkSize uint64, code string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	f := func(w http.ResponseWriter, r *http.Request) error {
 		sessionID := r.Header.Get(SessionID)
 		cr := r.Header.Get(ContentRange)
 		contentCurve := r.Header.Get(ContentCurve)
-		log.Printf("[%s] %s", r.Method, r.URL.Path)
+		contentFilename := r.Header.Get(ContentFilename)
 
 		switch {
-		case r.URL.Path == "/pushfile" && r.Method == http.MethodPost:
-			if err := servePushFile(w, r); err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				_, _ = w.Write([]byte(err.Error()))
-			}
-		case contentCurve != "" && r.Method == http.MethodPost:
-			if sessionID == "" {
-				w.WriteHeader(http.StatusNotFound)
-			}
-			if err := servePake(w, sessionID, code, contentCurve); err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				_, _ = w.Write([]byte(err.Error()))
-			}
-		case r.URL.Path == "/" && cr != "":
-			if sessionID == "" {
-				w.WriteHeader(http.StatusNotFound)
-			}
-			if err := serveUpload(w, r, cr, sessionID); err != nil {
-				log.Printf("uploading error: %v", err)
-				w.WriteHeader(http.StatusInternalServerError)
-				_, _ = w.Write([]byte(err.Error()))
-			}
+		case contentFilename != "" && r.URL.Path == "/pushfile" && r.Method == http.MethodPost:
+			return servePushFile(r.Body, contentFilename)
+		case sessionID != "" && contentCurve != "" && r.Method == http.MethodPost:
+			return servePake(w, sessionID, code, contentCurve)
+		case sessionID != "" && r.URL.Path == "/" && cr != "":
+			return serveUpload(w, r, cr, sessionID)
 		case r.URL.Path == "/" && r.Method == http.MethodGet:
 			if r.Header.Get("Accept") == "apllication/json" {
-				servList(w)
-			} else {
-				w.Header().Set("Content-Type", "text/html; charset=utf-8")
-				w.Write(indexPage)
+				return servList(w)
 			}
-		case r.Method == http.MethodGet: // may be downloads
-			if sessionID == "" {
-				w.WriteHeader(http.StatusNotFound)
-			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, err := w.Write(indexPage)
+			return err
+		case sessionID != "" && r.Method == http.MethodGet: // may be downloads
 			if status := serveDownload(w, r, sessionID, cr, chunkSize); status > 0 {
 				w.WriteHeader(status)
 			}
 		case r.Method == http.MethodPost:
-			serveNormalUpload(w, r, chunkSize)
+			return serveNormalUpload(w, r, chunkSize)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
+		return nil
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		w1 := newStatWriter(w)
+		start := time.Now()
+
+		if err := f(w1, r); err != nil {
+			log.Printf("error occurred: %v", err)
+			http.Error(w1, err.Error(), http.StatusInternalServerError)
+		}
+		log.Printf("%s %s %s [%d] %d %s %s (%s)",
+			r.RemoteAddr, r.Method, r.URL.Path, w1.StatusCode,
+			w1.Count, r.Header["Referer"], r.Header["User-Agent"], time.Since(start))
 	}
 }
+
+func newStatWriter(w http.ResponseWriter) *statWriter {
+	return &statWriter{ResponseWriter: w, StatusCode: http.StatusOK}
+}
+
+type statWriter struct {
+	http.ResponseWriter
+	Count      int
+	StatusCode int
+}
+
+func (s *statWriter) Write(i []byte) (int, error) {
+	n, err := s.ResponseWriter.Write(i)
+	s.Count += n
+	return n, err
+}
+
+func (s *statWriter) WriteHeader(statusCode int) {
+	s.ResponseWriter.WriteHeader(statusCode)
+	s.StatusCode = statusCode
+}
+
+var _ http.ResponseWriter = (*statWriter)(nil)
 
 var pakeCache = sync.Map{}
 
@@ -132,7 +151,7 @@ type Entry struct {
 	Size int64  `json:"size"`
 }
 
-func servList(w http.ResponseWriter) {
+func servList(w http.ResponseWriter) error {
 	var entries []Entry
 	if err := filepath.WalkDir(RootDir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -149,9 +168,9 @@ func servList(w http.ResponseWriter) {
 		})
 		return nil
 	}); err != nil {
-		log.Printf("walk dir %s, error: %v", RootDir, err)
+		return fmt.Errorf("walk dir %s: %w", RootDir, err)
 	}
-	_ = jsoni.NewEncoder(w).Encode(context.Background(), entries)
+	return jsoni.NewEncoder(w).Encode(context.Background(), entries)
 }
 
 func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, contentRange string, chunkSize uint64) int {
@@ -213,15 +232,15 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, contentRan
 	return 0
 }
 
-func servePushFile(w http.ResponseWriter, r *http.Request) error {
-	fullPath := filepath.Join(RootDir, r.Header.Get("Content-Filename"))
+func servePushFile(src io.Reader, contentFilename string) error {
+	fullPath := filepath.Join(RootDir, contentFilename)
 	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY, 0o755)
 	if err != nil {
 		return fmt.Errorf("open file %s error: %w", fullPath, err)
 	}
 	defer Close(f)
 
-	if _, err := io.Copy(f, r.Body); err != nil {
+	if _, err := io.Copy(f, src); err != nil {
 		return fmt.Errorf("write file %s error: %w", fullPath, err)
 	}
 

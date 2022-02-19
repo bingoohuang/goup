@@ -33,7 +33,7 @@ func (a Arg) Usage() string {
 Usage of goup:
   -b string bearer token for client or server, auto for server to generate a random one
   -c int    chunk size for client, unit MB (default 10)
-  -t int    co-routins for client
+  -t int    threads (go-routines) for client
   -f string upload file path for client
   -p int    listening port for server
   -r string rename to another filename

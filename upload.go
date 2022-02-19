@@ -8,19 +8,15 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/bingoohuang/gg/pkg/man"
 	"github.com/segmentio/ksuid"
 )
 
-func serveNormalUpload(w http.ResponseWriter, r *http.Request, chunkSize uint64) {
+func serveNormalUpload(w http.ResponseWriter, r *http.Request, chunkSize uint64) error {
 	r.Body = http.MaxBytesReader(w, r.Body, int64(chunkSize))
 
-	if err := NetHTTPUpload(w, r); err != nil {
-		log.Printf("error occurred: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	return NetHTTPUpload(w, r)
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) error {
@@ -35,15 +31,12 @@ func writeJSON(w http.ResponseWriter, v interface{}) error {
 }
 
 type uploadResult struct {
-	CostTime string
 	File     string
 	FileSize string
 }
 
 // NetHTTPUpload upload
 func NetHTTPUpload(w http.ResponseWriter, r *http.Request) error {
-	start := time.Now()
-
 	if err := r.ParseMultipartForm(16 /*16 MiB */ << 20); err != nil {
 		return err
 	}
@@ -58,11 +51,9 @@ func NetHTTPUpload(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	duration := time.Since(start)
-	log.Printf("recieved file %s, cost time %s", file, duration)
+	log.Printf("recieved file %s", file)
 
 	return writeJSON(w, uploadResult{
-		CostTime: duration.String(),
 		File:     file,
 		FileSize: man.Bytes(uint64(n)),
 	})
@@ -104,15 +95,15 @@ func saveFormFile(formFile *multipart.FileHeader, urlPath string) (string, int64
 
 	defer file.Close()
 
-	filename := firstNonEmpty(filepath.Base(urlPath), filepath.Base(formFile.Filename), ksuid.New().String())
+	filename := firstFilename(filepath.Base(urlPath), filepath.Base(formFile.Filename), ksuid.New().String())
 	fullPath := filepath.Join(RootDir, filename)
 	n, err := writeChunk(fullPath, file, nil)
 	return fullPath, n, err
 }
 
-func firstNonEmpty(s ...string) string {
+func firstFilename(s ...string) string {
 	for _, i := range s {
-		if i != "" {
+		if i != "" && i != "/" {
 			return i
 		}
 	}

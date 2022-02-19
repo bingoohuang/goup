@@ -36,6 +36,8 @@ const (
 	ContentCurve = "Content-Curve"
 	// ContentSalt is the header name for Content-Salt
 	ContentSalt = "Content-Salt"
+	// ContentFilename is the header name for Content-Filename
+	ContentFilename = "Content-Filename"
 )
 
 // Progress is a progress bar interface.
