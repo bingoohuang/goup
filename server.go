@@ -3,7 +3,7 @@ package goup
 import (
 	"bytes"
 	"context"
-	_ "embed"
+	_ "embed" // embed
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -21,7 +21,7 @@ import (
 )
 
 //go:embed index.html
-var indexHtml []byte
+var indexPage []byte
 
 // InitServer initializes the server.
 func InitServer() error {
@@ -34,6 +34,7 @@ func ServerHandle(chunkSize uint64, code string) http.HandlerFunc {
 		sessionID := r.Header.Get(SessionID)
 		cr := r.Header.Get(ContentRange)
 		contentCurve := r.Header.Get(ContentCurve)
+		log.Printf("[%s] %s", r.Method, r.URL.Path)
 
 		switch {
 		case r.URL.Path == "/pushfile" && r.Method == http.MethodPost:
@@ -63,9 +64,8 @@ func ServerHandle(chunkSize uint64, code string) http.HandlerFunc {
 				servList(w)
 			} else {
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
-				w.Write(indexHtml)
+				w.Write(indexPage)
 			}
-
 		case r.Method == http.MethodGet: // may be downloads
 			if sessionID == "" {
 				w.WriteHeader(http.StatusNotFound)
@@ -73,6 +73,8 @@ func ServerHandle(chunkSize uint64, code string) http.HandlerFunc {
 			if status := serveDownload(w, r, sessionID, cr, chunkSize); status > 0 {
 				w.WriteHeader(status)
 			}
+		case r.Method == http.MethodPost:
+			serveNormalUpload(w, r, chunkSize)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -267,7 +269,7 @@ func serveUpload(w http.ResponseWriter, r *http.Request, contentRange, sessionID
 		return fmt.Errorf("failed to decrypt: %w", err)
 	}
 
-	if err := writeChunk(fullPath, bytes.NewReader(data), cr); err != nil {
+	if _, err := writeChunk(fullPath, bytes.NewReader(data), cr); err != nil {
 		return fmt.Errorf("open file %s error: %w", fullPath, err)
 	}
 

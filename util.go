@@ -51,31 +51,34 @@ func (n noopProgressing) Start(uint64) {}
 func (n noopProgressing) Add(uint64)   {}
 func (n noopProgressing) Finish()      {}
 
-func writeChunk(fullPath string, chunk io.Reader, cr *chunkRange) error {
+func writeChunk(fullPath string, chunk io.Reader, cr *chunkRange) (int64, error) {
 	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_RDWR, 0o755)
 	if err != nil {
-		return fmt.Errorf("open file %s error: %w", fullPath, err)
+		return 0, fmt.Errorf("open file %s error: %w", fullPath, err)
 	}
 	defer Close(f)
 
-	stat, err := f.Stat()
-	if err != nil {
-		return fmt.Errorf("stat file %s error: %w", fullPath, err)
-	}
-	if stat.Size() != int64(cr.TotalSize) {
-		if err := f.Truncate(int64(cr.TotalSize)); err != nil {
-			return fmt.Errorf("truncate file %s to size %d error: %w", fullPath, cr.TotalSize, err)
+	if cr != nil {
+		stat, err := f.Stat()
+		if err != nil {
+			return 0, fmt.Errorf("stat file %s error: %w", fullPath, err)
+		}
+		if stat.Size() != int64(cr.TotalSize) {
+			if err := f.Truncate(int64(cr.TotalSize)); err != nil {
+				return 0, fmt.Errorf("truncate file %s to size %d error: %w", fullPath, cr.TotalSize, err)
+			}
+		}
+		if _, err := f.Seek(int64(cr.From), io.SeekStart); err != nil {
+			return 0, fmt.Errorf("seek file %s with pot %d error: %w", f.Name(), cr.From, err)
 		}
 	}
 
-	if _, err := f.Seek(int64(cr.From), io.SeekStart); err != nil {
-		return fmt.Errorf("seek file %s with pot %d error: %w", f.Name(), cr.From, err)
-	}
-	if _, err := io.Copy(f, chunk); err != nil {
-		return fmt.Errorf("write file %s error: %w", fullPath, err)
+	n, err := io.Copy(f, chunk)
+	if err != nil {
+		return 0, fmt.Errorf("write file %s error: %w", fullPath, err)
 	}
 
-	return nil
+	return n, nil
 }
 
 func genSalt() []byte {

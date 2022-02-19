@@ -7,6 +7,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.1.1
 	github.com/cheggaaa/pb/v3 v3.0.8
 	github.com/schollz/pake/v3 v3.0.2
+	github.com/segmentio/ksuid v1.0.4
 	github.com/vthiery/retry v0.1.0
 	golang.org/x/crypto v0.0.0-20210322153248-0c34fe9e7dc2
 )

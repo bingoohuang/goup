@@ -277,7 +277,8 @@ func (c *Client) downloadChunk(i uint64) error {
 		return fmt.Errorf("failed to decrypt: %w", err)
 	}
 
-	return writeChunk(c.fullPath, bytes.NewReader(data), cr)
+	_, err = writeChunk(c.fullPath, bytes.NewReader(data), cr)
+	return err
 }
 
 func (c *Client) goJobs(operation string, job func(i uint64) error) {
