@@ -3,6 +3,7 @@ package goup
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"mime/multipart"
 	"net/http"
@@ -84,20 +85,28 @@ func saveFormFile(formFile *multipart.FileHeader, urlPath string) (string, int64
 		return "", 0, err
 	}
 
-	if f, ok := file.(*os.File); ok {
-		defer func(name string) {
-			log.Printf("remove tmpfile: %s", name)
-			if err := os.Remove(name); err != nil {
-				log.Printf("tmpfile: %s remove failed: %v", name, err)
-			}
-		}(f.Name())
-	}
-
-	defer file.Close()
-
 	filename := firstFilename(filepath.Base(urlPath), filepath.Base(formFile.Filename), ksuid.New().String())
 	fullPath := filepath.Join(RootDir, filename)
+
+	// use temporary file directly
+	if f, ok := file.(*os.File); ok {
+		n, err := file.Seek(0, io.SeekEnd)
+		if err != nil {
+			return "", n, err
+		}
+		if err := file.Close(); err != nil {
+			return "", 0, err
+		}
+		if err := os.Rename(f.Name(), fullPath); err != nil {
+			return "", 0, err
+		}
+		return fullPath, n, nil
+	}
+
 	n, err := writeChunk(fullPath, file, nil)
+	if err := file.Close(); err != nil {
+		return "", 0, err
+	}
 	return fullPath, n, err
 }
 
