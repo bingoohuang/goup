@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"github.com/bingoohuang/goup/codec"
 	"io"
 	"io/ioutil"
 	"log"
@@ -264,12 +265,12 @@ func (c *Client) downloadChunk(i uint64) error {
 		return err
 	}
 
-	key, _, err := NewKey(c.sessionKey, salt)
+	key, _, err := codec.NewKey(c.sessionKey, salt)
 	if err != nil {
 		return err
 	}
 
-	data, err := Decrypt(body.Bytes(), key)
+	data, err := codec.Decrypt(body.Bytes(), key)
 	if err != nil {
 		return fmt.Errorf("failed to decrypt: %w", err)
 	}
@@ -394,13 +395,13 @@ func (c *Client) chunkUpload(part []byte, contentRange string) (string, error) {
 }
 
 func (c *Client) chunkTransfer(part []byte, contentRange string, err error) (string, error) {
-	salt := genSalt()
-	key, _, err := NewKey(c.sessionKey, salt)
+	salt := codec.GenSalt(8)
+	key, _, err := codec.NewKey(c.sessionKey, salt)
 	if err != nil {
 		return "", err
 	}
 
-	data, err := Encrypt(part, key)
+	data, err := codec.Encrypt(part, key)
 	if err != nil {
 		return "", fmt.Errorf("encrypt data error: %w", err)
 	}

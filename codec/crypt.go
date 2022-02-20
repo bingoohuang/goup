@@ -1,4 +1,4 @@
-package goup
+package codec
 
 import (
 	"crypto/aes"
@@ -13,15 +13,23 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 )
 
+// GenSalt generates a salt
+func GenSalt(n int) []byte {
+	salt := make([]byte, n)
+	if _, err := rand.Read(salt); err != nil {
+		log.Printf("can't generate random numbers: %v", err)
+	}
+	return salt
+}
+
 // NewKey generates a new key based on a passphrase and salt
 func NewKey(passphrase, userSalt []byte) (key, salt []byte, err error) {
 	if len(passphrase) < 1 {
 		return nil, nil, fmt.Errorf("need more than that for passphrase")
 	}
 
-	salt = userSalt
-	if len(salt) == 0 {
-		salt = genSalt()
+	if salt = userSalt; len(salt) == 0 {
+		salt = GenSalt(8)
 	}
 	key = pbkdf2.Key(passphrase, salt, 100, 32, sha256.New)
 	return key, salt, nil
@@ -75,9 +83,8 @@ func NewArgon2(passphrase []byte, userSalt []byte) (aead cipher.AEAD, salt []byt
 		err = fmt.Errorf("need more than that for passphrase")
 		return
 	}
-	salt = userSalt
-	if len(salt) == 0 {
-		salt = genSalt()
+	if salt = userSalt; len(salt) == 0 {
+		salt = GenSalt(8)
 	}
 	aead, err = chacha20poly1305.NewX(argon2.IDKey(passphrase, salt, 1, 64*1024, 4, 32))
 	return

@@ -6,6 +6,7 @@ import (
 	_ "embed" // embed
 	"encoding/base64"
 	"fmt"
+	"github.com/bingoohuang/goup/codec"
 	"io"
 	"io/fs"
 	"log"
@@ -209,14 +210,14 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, contentRan
 		return http.StatusInternalServerError
 	}
 
-	salt := genSalt()
-	key, _, err := NewKey(getSessionKey(sessionID), salt)
+	salt := codec.GenSalt(8)
+	key, _, err := codec.NewKey(getSessionKey(sessionID), salt)
 	if err != nil {
 		log.Printf("new key error: %v", err)
 		return http.StatusInternalServerError
 	}
 
-	data, err := Encrypt(chunk, key)
+	data, err := codec.Encrypt(chunk, key)
 	if err != nil {
 		log.Printf("encrypt chunk error: %v", err)
 		return http.StatusInternalServerError
@@ -282,8 +283,8 @@ func serveUpload(w http.ResponseWriter, r *http.Request, contentRange, sessionID
 	if err != nil {
 		return err
 	}
-	key, _, err := NewKey(getSessionKey(sessionID), salt)
-	data, err := Decrypt(body.Bytes(), key)
+	key, _, err := codec.NewKey(getSessionKey(sessionID), salt)
+	data, err := codec.Decrypt(body.Bytes(), key)
 	if err != nil {
 		return fmt.Errorf("failed to decrypt: %w", err)
 	}

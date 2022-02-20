@@ -83,14 +83,6 @@ func writeChunk(fullPath string, chunk io.Reader, cr *chunkRange) (int64, error)
 	return n, nil
 }
 
-func genSalt() []byte {
-	salt := make([]byte, 8)
-	if _, err := rand.Read(salt); err != nil {
-		log.Printf("can't generate random numbers: %v", err)
-	}
-	return salt
-}
-
 // Cut cuts the s string into two strings by separator sep.
 func Cut(s, sep string) (a, b string) {
 	idx := strings.Index(s, sep)
