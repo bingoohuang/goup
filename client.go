@@ -115,15 +115,12 @@ func New(url string, fns ...OptFn) (*Client, error) {
 		coroutines:         opt.Coroutines,
 		code:               opt.Code,
 	}
-	if err := g.init(); err != nil {
-		return nil, err
-	}
 
 	return g, nil
 }
 
-// Init method initializes upload
-func (c *Client) init() (err error) {
+// Start method initializes upload
+func (c *Client) Start() (err error) {
 	if err := c.setupSessionKey(); err != nil {
 		return err
 	}

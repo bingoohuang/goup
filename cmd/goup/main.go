@@ -60,7 +60,6 @@ func (p pbProgress) Finish()          { p.bar.Finish() }
 func main() {
 	c := &Arg{}
 	flagparse.Parse(c)
-	chunkSize := uint64((c.ChunkSize) * (1 << 20))
 
 	if c.ServerUrl == "" {
 		if c.BearerToken == "auto" {
@@ -71,7 +70,7 @@ func main() {
 		if err := goup.InitServer(); err != nil {
 			log.Fatalf("init goup server: %v", err)
 		}
-		http.HandleFunc("/", goup.Bearer(c.BearerToken, goup.ServerHandle(chunkSize, c.Code)))
+		http.HandleFunc("/", goup.Bearer(c.BearerToken, goup.ServerHandle(c.ChunkSize, c.Code)))
 		log.Printf("Listening on %d", c.Port)
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", c.Port), nil); err != nil {
 			log.Printf("listen: %v", err)
@@ -85,13 +84,17 @@ func main() {
 		goup.WithFullPath(c.FilePath),
 		goup.WithRename(c.Rename),
 		goup.WithBearer(c.BearerToken),
-		goup.WithChunkSize(chunkSize),
+		goup.WithChunkSize(c.ChunkSize),
 		goup.WithProgress(&pbProgress{bar: bar}),
 		goup.WithCoroutines(c.Coroutines),
 		goup.WithCode(c.Code),
 	)
 	if err != nil {
 		log.Fatalf("new goup client: %v", err)
+	}
+
+	if err := g.Start(); err != nil {
+		log.Fatalf("start goup client: %v", err)
 	}
 
 	g.Wait()
