@@ -1,12 +1,10 @@
 package goup
 
 import (
-	"bytes"
 	"context"
 	_ "embed" // embed
 	"encoding/base64"
 	"fmt"
-	"github.com/bingoohuang/goup/codec"
 	"io"
 	"io/fs"
 	"log"
@@ -16,6 +14,11 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/bingoohuang/gg/pkg/ss"
+
+	"github.com/bingoohuang/goup/codec"
+	"github.com/minio/sio"
 
 	"github.com/schollz/pake/v3"
 
@@ -31,20 +34,21 @@ func InitServer() error {
 }
 
 // ServerHandle is main request/response handler for HTTP server.
-func ServerHandle(chunkSize uint64, code string) http.HandlerFunc {
+func ServerHandle(chunkSize uint64, code string, cipher string) http.HandlerFunc {
 	f := func(w http.ResponseWriter, r *http.Request) error {
 		sessionID := r.Header.Get(SessionID)
 		cr := r.Header.Get(ContentRange)
 		contentCurve := r.Header.Get(ContentCurve)
 		contentFilename := r.Header.Get(ContentFilename)
+		contentChecksum := r.Header.Get(ContentChecksum)
 
 		switch {
-		case contentFilename != "" && r.URL.Path == "/pushfile" && r.Method == http.MethodPost:
-			return servePushFile(r.Body, contentFilename)
+		case contentFilename != "" && r.Method == http.MethodPost:
+			return serveBodyAsFile(r.Body, contentFilename)
 		case sessionID != "" && contentCurve != "" && r.Method == http.MethodPost:
 			return servePake(w, sessionID, code, contentCurve)
-		case sessionID != "" && r.URL.Path == "/" && cr != "":
-			return serveUpload(w, r, cr, sessionID)
+		case sessionID != "" && r.URL.Path == "/" && cr != "" && ss.AnyOf(r.Method, http.MethodPost, http.MethodGet):
+			return serveUpload(w, r, cr, sessionID, cipher, contentChecksum)
 		case r.URL.Path == "/" && r.Method == http.MethodGet:
 			if r.Header.Get("Accept") == "apllication/json" {
 				return servList(w)
@@ -53,11 +57,10 @@ func ServerHandle(chunkSize uint64, code string) http.HandlerFunc {
 			_, err := w.Write(indexPage)
 			return err
 		case sessionID != "" && r.Method == http.MethodGet: // may be downloads
-			if status := serveDownload(w, r, sessionID, cr, chunkSize); status > 0 {
-				w.WriteHeader(status)
-			}
+			status := serveDownload(w, r, sessionID, cipher, cr, chunkSize)
+			w.WriteHeader(status)
 		case r.Method == http.MethodPost:
-			return serveNormalUpload(w, r, chunkSize)
+			return serveMultipartFormUpload(w, r, chunkSize)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -174,7 +177,7 @@ func servList(w http.ResponseWriter) error {
 	return jsoni.NewEncoder(w).Encode(context.Background(), entries)
 }
 
-func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, contentRange string, chunkSize uint64) int {
+func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, contentRange string, chunkSize uint64) int {
 	fullPath := filepath.Join(RootDir, "."+r.URL.Path)
 	stat, err := os.Stat(fullPath)
 	if os.IsNotExist(err) {
@@ -188,7 +191,7 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, contentRan
 		cr := newChunkRange(0, chunkSize, partSize, totalSize)
 		w.Header().Set(ContentRange, cr.createContentRange())
 		w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
-		return 0
+		return http.StatusOK
 	}
 
 	cr, err := parseContentRange(contentRange)
@@ -198,28 +201,23 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, contentRan
 	}
 
 	if sum := r.Header.Get(ContentChecksum); sum != "" {
-		if old := readChecksum(fullPath, cr.From, cr.To); old == sum {
+		if old, _ := readChunkChecksum(fullPath, cr.From, cr.To); old == sum {
 			log.Printf("304 file %s with session %s, range %s", filename, r.Header.Get(SessionID), contentRange)
 			return http.StatusNotModified
 		}
 	}
 
-	chunk, err := readChunk(fullPath, cr.From, cr.To)
+	chunkReader, err := createChunkReader(fullPath, cr.From, cr.To)
 	if err != nil {
-		log.Printf("read %s chunk: %v", fullPath, err)
+		log.Printf("createChunkReader %s chunk: %v", fullPath, err)
 		return http.StatusInternalServerError
 	}
+	defer Close(chunkReader)
 
 	salt := codec.GenSalt(8)
-	key, _, err := codec.NewKey(getSessionKey(sessionID), salt)
+	key, _, err := codec.Scrypt(getSessionKey(sessionID), salt)
 	if err != nil {
 		log.Printf("new key error: %v", err)
-		return http.StatusInternalServerError
-	}
-
-	data, err := codec.Encrypt(chunk, key)
-	if err != nil {
-		log.Printf("encrypt chunk error: %v", err)
 		return http.StatusInternalServerError
 	}
 
@@ -227,13 +225,19 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, contentRan
 	w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 	w.Header().Set(ContentRange, contentRange)
 	w.Header().Set(ContentSalt, base64.RawURLEncoding.EncodeToString(salt))
-	log.Printf("send file %s with session %s, range %s", filename, r.Header.Get(SessionID), contentRange)
 
-	_, _ = w.Write(data)
-	return 0
+	_, cipherSuites := parseCipherSuites(cipher)
+	cfg := sio.Config{Key: key, CipherSuites: cipherSuites}
+	if n, err := sio.Encrypt(w, chunkReader, cfg); err != nil {
+		log.Printf("encrypt %s bytes: %d, error: %v", fullPath, n, err)
+		return http.StatusInternalServerError
+	}
+
+	log.Printf("send file %s with session %s, range %s", filename, r.Header.Get(SessionID), contentRange)
+	return http.StatusOK
 }
 
-func servePushFile(src io.Reader, contentFilename string) error {
+func serveBodyAsFile(src io.Reader, contentFilename string) error {
 	fullPath := filepath.Join(RootDir, contentFilename)
 	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_WRONLY, 0o755)
 	if err != nil {
@@ -249,7 +253,7 @@ func servePushFile(src io.Reader, contentFilename string) error {
 	return nil
 }
 
-func serveUpload(w http.ResponseWriter, r *http.Request, contentRange, sessionID string) error {
+func serveUpload(w http.ResponseWriter, r *http.Request, contentRange, sessionID, cipher, contentChecksum string) error {
 	cr, err := parseContentRange(contentRange)
 	if err != nil {
 		return fmt.Errorf("parse contentRange %s error: %w", contentRange, err)
@@ -262,37 +266,36 @@ func serveUpload(w http.ResponseWriter, r *http.Request, contentRange, sessionID
 	filename := params["filename"]
 	fullPath := filepath.Join(RootDir, filename)
 
-	if sum := r.Header.Get(ContentChecksum); r.Method == http.MethodGet && sum != "" {
-		if old := readChecksum(fullPath, cr.From, cr.To); old == sum {
-			w.WriteHeader(http.StatusNotModified)
+	if r.Method == http.MethodGet {
+		if contentChecksum != "" {
+			if old, _ := readChunkChecksum(fullPath, cr.From, cr.To); old == contentChecksum {
+				w.WriteHeader(http.StatusNotModified)
+			}
 		}
 
 		return nil
-	}
-
-	if r.Method != http.MethodPost {
-		return fmt.Errorf("invalid http method")
-	}
-
-	var body bytes.Buffer
-	if _, err := io.Copy(&body, r.Body); err != nil {
-		return err
 	}
 
 	salt, err := base64.RawURLEncoding.DecodeString(r.Header.Get(ContentSalt))
 	if err != nil {
 		return err
 	}
-	key, _, err := codec.NewKey(getSessionKey(sessionID), salt)
-	data, err := codec.Decrypt(body.Bytes(), key)
+	key, _, err := codec.Scrypt(getSessionKey(sessionID), salt)
 	if err != nil {
-		return fmt.Errorf("failed to decrypt: %w", err)
+		return err
 	}
 
-	if _, err := writeChunk(fullPath, bytes.NewReader(data), cr); err != nil {
-		return fmt.Errorf("open file %s error: %w", fullPath, err)
+	f, err := openChunk(fullPath, cr)
+	if err != nil {
+		return err
 	}
+	defer Close(f)
 
+	_, cipherSuites := parseCipherSuites(cipher)
+	cfg := sio.Config{Key: key, CipherSuites: cipherSuites}
+	if n, err := sio.Decrypt(f, r.Body, cfg); err != nil {
+		return fmt.Errorf("decrypt %s bytes: %d, error: %w", fullPath, n, err)
+	}
 	if _, err := w.Write([]byte(contentRange)); err != nil {
 		return fmt.Errorf("write file %s error: %w", fullPath, err)
 	}
@@ -301,31 +304,11 @@ func serveUpload(w http.ResponseWriter, r *http.Request, contentRange, sessionID
 	return nil
 }
 
-func readChecksum(fullPath string, from, to uint64) string {
-	if fileNotExists(fullPath) {
-		return ""
+func parseCipherSuites(cipher string) (string, []byte) {
+	switch cipher {
+	case "AES256":
+		return "sio.AES_256_GCM", []byte{sio.AES_256_GCM}
+	default: // C20P1305
+		return "sio.CHACHA20_POLY1305", []byte{sio.CHACHA20_POLY1305}
 	}
-
-	f, err := os.OpenFile(fullPath, os.O_RDONLY, 0o755)
-	if err != nil {
-		log.Printf("failed to open file %s,error: %v", fullPath, err)
-		return ""
-	}
-	defer Close(f)
-
-	if _, err := f.Seek(int64(from), io.SeekStart); err != nil {
-		log.Printf("failed to see file %s to %d ,error: %v", fullPath, from, err)
-		return ""
-	}
-
-	buf := make([]byte, to-from)
-	if n, err := f.Read(buf); err != nil {
-		log.Printf("failed to read file %s  ,error: %v", fullPath, err)
-		return ""
-	} else if n < int(to-from) {
-		log.Printf("read file %s not enough real %d < expected %d error: %v", fullPath, n, to-from, err)
-		return ""
-	}
-
-	return checksum(buf)
 }

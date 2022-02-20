@@ -4,7 +4,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
+
+	"github.com/bingoohuang/goup/codec"
+	"github.com/segmentio/ksuid"
 
 	"github.com/cheggaaa/pb/v3"
 
@@ -15,16 +19,17 @@ import (
 )
 
 type Arg struct {
-	Code        string `flag:"code" val:"abc123"`
 	ChunkSize   uint64 `flag:",c" size:"true" val:"10MiB"`
 	Coroutines  int    `flag:",t"`
+	Port        int    `flag:",p" val:"2110"`
+	Version     bool   `flag:",v"`
+	Init        bool
+	Code        string `flag:"code"`
+	Cipher      string `flag:"cipher"`
 	ServerUrl   string `flag:",u"`
 	FilePath    string `flag:",f"`
 	Rename      string `flag:",r"`
-	Port        int    `flag:",p" val:"2110"`
 	BearerToken string `flag:",b"`
-	Version     bool   `flag:",v"`
-	Init        bool
 }
 
 // Usage is optional for customized show.
@@ -39,6 +44,7 @@ Usage of goup:
   -r    string Rename to another filename
   -u    string Server upload url for client to connect to
   -code string Codephrase
+  -cipher      Cipher AES256: AES-256 GCM, C20P1305: ChaCha20 Poly1305
   -v    bool   Show version
   -init bool   Create init ctl shell script`)
 }
@@ -61,6 +67,8 @@ func main() {
 	c := &Arg{}
 	flagparse.Parse(c)
 
+	c.processCode()
+
 	if c.ServerUrl == "" {
 		if c.BearerToken == "auto" {
 			c.BearerToken = goup.BearerTokenGenerate()
@@ -70,7 +78,7 @@ func main() {
 		if err := goup.InitServer(); err != nil {
 			log.Fatalf("init goup server: %v", err)
 		}
-		http.HandleFunc("/", goup.Bearer(c.BearerToken, goup.ServerHandle(c.ChunkSize, c.Code)))
+		http.HandleFunc("/", goup.Bearer(c.BearerToken, goup.ServerHandle(c.ChunkSize, c.Code, c.Cipher)))
 		log.Printf("Listening on %d", c.Port)
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", c.Port), nil); err != nil {
 			log.Printf("listen: %v", err)
@@ -88,6 +96,7 @@ func main() {
 		goup.WithProgress(&pbProgress{bar: bar}),
 		goup.WithCoroutines(c.Coroutines),
 		goup.WithCode(c.Code),
+		goup.WithCipher(c.Cipher),
 	)
 	if err != nil {
 		log.Fatalf("new goup client: %v", err)
@@ -98,4 +107,18 @@ func main() {
 	}
 
 	g.Wait()
+}
+
+func (a *Arg) processCode() {
+	if a.Code == "" {
+		pwd, err := codec.ReadPassword(os.Stdin)
+		if err != nil {
+			log.Printf("failed to read password: %v", err)
+		}
+		a.Code = string(pwd)
+	}
+	if a.Code == "" {
+		a.Code = ksuid.New().String()
+		log.Printf("password is generate: %s", a.Code)
+	}
 }

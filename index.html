@@ -42,7 +42,7 @@
             // https://stackoverflow.com/questions/7431365/filereader-readasbinarystring-to-upload-files/17512132#17512132
             // file is an instance of File, e.g. from a file input.
             let xhr = new XMLHttpRequest()
-            xhr.open("POST", '/pushfile', true)
+            xhr.open("POST", '/', true)
             xhr.setRequestHeader('Content-Filename', file.name)
             xhr.setRequestHeader("Content-Type", file.type)
 

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log"
 
+	"golang.org/x/crypto/scrypt"
+
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/pbkdf2"
@@ -22,8 +24,17 @@ func GenSalt(n int) []byte {
 	return salt
 }
 
-// NewKey generates a new key based on a passphrase and salt
-func NewKey(passphrase, userSalt []byte) (key, salt []byte, err error) {
+func Scrypt(passphrase, userSalt []byte) (key, salt []byte, err error) {
+	if salt = userSalt; len(salt) == 0 {
+		salt = GenSalt(8)
+	}
+
+	key, err = scrypt.Key(passphrase, salt, 32768, 16, 1, 32)
+	return key, salt, nil
+}
+
+// Pbkdf2 generates a new key based on a passphrase and salt
+func Pbkdf2(passphrase, userSalt []byte) (key, salt []byte, err error) {
 	if len(passphrase) < 1 {
 		return nil, nil, fmt.Errorf("need more than that for passphrase")
 	}

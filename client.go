@@ -1,12 +1,9 @@
 package goup
 
 import (
-	"bytes"
 	"encoding/base64"
 	"fmt"
-	"github.com/bingoohuang/goup/codec"
 	"io"
-	"io/ioutil"
 	"log"
 	"math"
 	"mime"
@@ -14,6 +11,9 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/bingoohuang/goup/codec"
+	"github.com/minio/sio"
 
 	"github.com/schollz/pake/v3"
 
@@ -32,6 +32,7 @@ type Client struct {
 	contentDisposition string
 	bearer             string
 	code               string
+	cipher             string
 	progress           Progress
 	coroutines         int
 	sessionKey         []byte
@@ -52,6 +53,7 @@ type Opt struct {
 	FullPath   string
 	Code       string
 	Coroutines int
+	Cipher     string
 }
 
 // OptFn is the option pattern func prototype.
@@ -74,6 +76,9 @@ func WithBearer(v string) OptFn { return func(c *Opt) { c.Bearer = v } }
 
 // WithFullPath set FullPath.
 func WithFullPath(v string) OptFn { return func(c *Opt) { c.FullPath = v } }
+
+// WithCipher set cipher.
+func WithCipher(v string) OptFn { return func(c *Opt) { c.Cipher = v } }
 
 // WithCode set Code.
 func WithCode(v string) OptFn { return func(c *Opt) { c.Code = v } }
@@ -115,6 +120,7 @@ func New(url string, fns ...OptFn) (*Client, error) {
 		progress:           opt.Progress,
 		coroutines:         opt.Coroutines,
 		code:               opt.Code,
+		cipher:             opt.Cipher,
 	}
 
 	return g, nil
@@ -230,7 +236,7 @@ func (c *Client) downloadChunk(i uint64) error {
 	}
 
 	cr := newChunkRange(i, c.chunkSize, partSize, c.TotalSize)
-	chunk, err := readChunk(c.fullPath, cr.From, cr.To)
+	chunkChecksum, err := readChunkChecksum(c.fullPath, cr.From, cr.To)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", c.fullPath, err)
 	}
@@ -240,7 +246,7 @@ func (c *Client) downloadChunk(i uint64) error {
 	r.Header.Set(Authorization, c.bearer)
 	r.Header.Set(ContentRange, cr.createContentRange())
 	r.Header.Set(ContentDisposition, c.contentDisposition)
-	r.Header.Set(ContentChecksum, checksum(chunk))
+	r.Header.Set(ContentChecksum, chunkChecksum)
 	q, err := c.client.Do(r)
 	if err != nil {
 		return err
@@ -255,28 +261,35 @@ func (c *Client) downloadChunk(i uint64) error {
 		return fmt.Errorf("bad status code: %d", q.StatusCode)
 	}
 
-	var body bytes.Buffer
-	if _, err := io.Copy(&body, q.Body); err != nil {
-		return err
-	}
-
 	salt, err := base64.RawURLEncoding.DecodeString(q.Header.Get(ContentSalt))
 	if err != nil {
 		return err
 	}
 
-	key, _, err := codec.NewKey(c.sessionKey, salt)
+	if q.Body == nil {
+		return fmt.Errorf("response body is nil")
+	}
+
+	key, _, err := codec.Scrypt(c.sessionKey, salt)
 	if err != nil {
 		return err
 	}
 
-	data, err := codec.Decrypt(body.Bytes(), key)
-	if err != nil {
-		return fmt.Errorf("failed to decrypt: %w", err)
-	}
+	pr, pw := io.Pipe()
+	go func() {
+		defer pw.Close()
 
-	_, err = writeChunk(c.fullPath, bytes.NewReader(data), cr)
-	return err
+		_, cipherSuites := parseCipherSuites(c.cipher)
+		cfg := sio.Config{Key: key, CipherSuites: cipherSuites}
+		if n, err := sio.Decrypt(pw, q.Body, cfg); err != nil {
+			log.Printf("decrypt bytes: %d error: %v", n, err)
+		}
+	}()
+
+	if _, err := writeChunk(c.fullPath, pr, cr); err != nil {
+		return fmt.Errorf("write chunk error: %w", err)
+	}
+	return nil
 }
 
 func (c *Client) goJobs(operation string, job func(i uint64) error) {
@@ -314,12 +327,18 @@ func (c *Client) uploadChunk(i uint64) error {
 	}
 
 	cr := newChunkRange(i, c.chunkSize, partSize, c.TotalSize)
-	chunk, err := readChunk(c.fullPath, cr.From, cr.To)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", c.fullPath, err)
-	}
 
-	responseBody, err := c.chunkUpload(chunk, cr.createContentRange())
+	chunkChecksum, err := readChunkChecksum(c.fullPath, cr.From, cr.To)
+	if err != nil {
+		return fmt.Errorf("readChunkChecksum %s: %w", c.fullPath, err)
+	}
+	r, err := createChunkReader(c.fullPath, cr.From, cr.To)
+	if err != nil {
+		return fmt.Errorf("createChunkReader %s: %w", c.fullPath, err)
+	}
+	defer Close(r)
+
+	responseBody, err := c.chunkUpload(r, cr.createContentRange(), chunkChecksum)
 	if err != nil {
 		return fmt.Errorf("chunk %d upload: %w", i+1, err)
 	}
@@ -382,8 +401,8 @@ func (c *Client) setupSessionKey() error {
 	return nil
 }
 
-func (c *Client) chunkUpload(part []byte, contentRange string) (string, error) {
-	notModified, err := c.chunkUploadChecksum(part, contentRange)
+func (c *Client) chunkUpload(part io.ReadCloser, contentRange string, chunkChecksum string) (string, error) {
+	notModified, err := c.chunkUploadChecksum(chunkChecksum, contentRange)
 	if err != nil {
 		return "", err
 	}
@@ -394,19 +413,25 @@ func (c *Client) chunkUpload(part []byte, contentRange string) (string, error) {
 	return c.chunkTransfer(part, contentRange, err)
 }
 
-func (c *Client) chunkTransfer(part []byte, contentRange string, err error) (string, error) {
+func (c *Client) chunkTransfer(chunkBody io.Reader, contentRange string, err error) (string, error) {
 	salt := codec.GenSalt(8)
-	key, _, err := codec.NewKey(c.sessionKey, salt)
+	key, _, err := codec.Scrypt(c.sessionKey, salt)
 	if err != nil {
 		return "", err
 	}
 
-	data, err := codec.Encrypt(part, key)
-	if err != nil {
-		return "", fmt.Errorf("encrypt data error: %w", err)
-	}
+	pr, pw := io.Pipe()
+	go func() {
+		defer Close(pw)
 
-	r, err := http.NewRequest(http.MethodPost, c.url, bytes.NewBuffer(data))
+		_, cipherSuites := parseCipherSuites(c.cipher)
+		cfg := sio.Config{Key: key, CipherSuites: cipherSuites}
+		if n, err := sio.Encrypt(pw, chunkBody, cfg); err != nil {
+			log.Printf("encrypt data bytes: %d, error: %v", n, err)
+		}
+	}()
+
+	r, err := http.NewRequest(http.MethodPost, c.url, pr)
 	if err != nil {
 		return "", err
 	}
@@ -423,7 +448,7 @@ func (c *Client) chunkTransfer(part []byte, contentRange string, err error) (str
 	}
 	defer Close(q.Body)
 
-	body, err := ioutil.ReadAll(q.Body)
+	body, err := io.ReadAll(q.Body)
 	if err != nil {
 		return "", err
 	}
@@ -435,14 +460,14 @@ func (c *Client) chunkTransfer(part []byte, contentRange string, err error) (str
 	return string(body), nil
 }
 
-func (c *Client) chunkUploadChecksum(part []byte, contentRange string) (bool, error) {
+func (c *Client) chunkUploadChecksum(chunkChecksum, contentRange string) (bool, error) {
 	r, err := http.NewRequest(http.MethodGet, c.url, nil)
 
 	r.Header.Set(SessionID, c.ID)
 	r.Header.Set(Authorization, c.bearer)
 	r.Header.Set(ContentRange, contentRange)
 	r.Header.Set(ContentDisposition, c.contentDisposition)
-	r.Header.Set(ContentChecksum, checksum(part))
+	r.Header.Set(ContentChecksum, chunkChecksum)
 	q, err := c.client.Do(r)
 	if err != nil {
 		return false, err
