@@ -16,7 +16,7 @@ import (
 
 type Arg struct {
 	Code        string `flag:"code" val:"abc123"`
-	ChunkSize   int    `flag:",c" val:"10"`
+	ChunkSize   uint64 `flag:",c" size:"true" val:"10MiB"`
 	Coroutines  int    `flag:",t"`
 	ServerUrl   string `flag:",u"`
 	FilePath    string `flag:",f"`
@@ -31,16 +31,16 @@ type Arg struct {
 func (a Arg) Usage() string {
 	return fmt.Sprintf(`
 Usage of goup:
-  -b string bearer token for client or server, auto for server to generate a random one
-  -c int    chunk size for client, unit MB (default 10)
-  -t int    threads (go-routines) for client
-  -f string upload file path for client
-  -p int    listening port for server
-  -r string rename to another filename
-  -u string server upload url for client to connect to
-  -code string codephrase
-  -v    bool   show version
-  -init bool   create init ctl shell script`)
+  -b    string Bearer token for client or server, auto for server to generate a random one
+  -c    string Chunk size for client, unit MB (default 10)
+  -t    int    Threads (go-routines) for client
+  -f    string Upload file path for client
+  -p    int    Listening port for server
+  -r    string Rename to another filename
+  -u    string Server upload url for client to connect to
+  -code string Codephrase
+  -v    bool   Show version
+  -init bool   Create init ctl shell script`)
 }
 
 // VersionInfo is optional for customized version.

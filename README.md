@@ -84,3 +84,8 @@ $ goup -u http://127.0.0.1:2110/246.png
 92.41 MiB / 92.41 MiB [---------------------------------------------------------------------] 100.00% 97.56 MiB p/s
 2022/01/21 13:29:44 download complete: .goup-files/246.png
 ```
+
+## normal upload support
+
+1. Start the server: `goup -c 100M`
+2. Test the upload: `curl -F "file:=@a.mp4" localhost:2110`
