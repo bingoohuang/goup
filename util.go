@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -30,6 +32,8 @@ const (
 	ContentDisposition = "Content-Disposition"
 	// ContentType is the header name for Content-Type
 	ContentType = "Content-Type"
+	// ContentLength is the header name for Content-Length
+	ContentLength = "Content-Length"
 	// ContentChecksum is the header name for Content-Checksum
 	ContentChecksum = "Content-Checksum"
 	// ContentCurve is the header name for Content-Curve
@@ -96,7 +100,7 @@ func writeChunk(fullPath string, progress Progress, chunk io.Reader, cr *chunkRa
 
 	defer Close(f)
 
-	n, err := io.Copy(f, &PbReader{R: chunk, Adder: progress})
+	n, err := io.Copy(f, &PbReader{Reader: chunk, Adder: progress})
 	if err != nil {
 		return 0, fmt.Errorf("write file %s error: %w", fullPath, err)
 	}
@@ -171,12 +175,21 @@ func createChunkReader(fullPath string, partFrom, partTo uint64) (r io.ReadClose
 		return nil, fmt.Errorf("open file %s error: %w", fullPath, err)
 	}
 
-	if _, err := f.Seek(int64(partFrom), io.SeekStart); err != nil {
-		return nil, fmt.Errorf("seek file %s to %d error: %w", fullPath, partFrom, err)
+	if partFrom > 0 {
+		if _, err := f.Seek(int64(partFrom), io.SeekStart); err != nil {
+			return nil, fmt.Errorf("seek file %s to %d error: %w", fullPath, partFrom, err)
+		}
+
+		reader := io.LimitReader(f, int64(partTo-partFrom))
+		return Wrap(reader, f), nil
 	}
 
-	reader := io.LimitReader(f, int64(partTo-partFrom))
-	return Wrap(reader, f), nil
+	stat, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	return &PayloadFile{ReadCloser: f, Name: f.Name(), Size: stat.Size()}, nil
 }
 
 // GetPartSize get the part size of idx-th chunk.
@@ -265,14 +278,137 @@ func Close(c io.Closer) {
 	}
 }
 
+// UnderReader returns the under wrapped io.Reader.
+type UnderReader interface {
+	GetUnderReader() io.Reader
+}
+
 // PbReader counts the bytes read through it.
 type PbReader struct {
-	R     io.Reader
+	io.Reader
 	Adder Adder
 }
 
+// GetUnderReader returns the under wrapped io.Reader.
+func (r PbReader) GetUnderReader() io.Reader { return r.Reader }
+
 func (r PbReader) Read(p []byte) (n int, err error) {
-	n, err = r.R.Read(p)
+	n, err = r.Reader.Read(p)
 	r.Adder.Add(uint64(n))
 	return
+}
+
+// MultipartPayload is the multipart payload.
+type MultipartPayload struct {
+	headers map[string]string
+	body    io.Reader
+	size    int64
+}
+
+// PayloadFileReader is the interface which means a reader which represents a file.
+type PayloadFileReader interface {
+	io.Reader
+
+	FileName() string
+	FileSize() int64
+}
+
+// PayloadFile means the file payload.
+type PayloadFile struct {
+	io.ReadCloser
+
+	Name string
+	Size int64
+}
+
+// FileName returns the filename
+func (p PayloadFile) FileName() string { return p.Name }
+
+// FileSize returns the file size.
+func (p PayloadFile) FileSize() int64 { return p.Size }
+
+const (
+	crlf = "\r\n"
+)
+
+// PrepareMultipartPayload prepares the multipart playload of http request.
+// Multipart request has the following structure:
+//  POST /upload HTTP/1.1
+//  Other-Headers: ...
+//  Content-Type: multipart/form-data; boundary=$boundary
+//  \r\n
+//  --$boundary\r\n    👈 request body starts here
+//  Content-Disposition: form-data; name="field1"\r\n
+//  Content-Type: text/plain; charset=utf-8\r\n
+//  Content-Length: 4\r\n
+//  \r\n
+//  $content\r\n
+//  --$boundary\r\n
+//  Content-Disposition: form-data; name="field2"\r\n
+//  ...
+//  --$boundary--\r\n
+// https://stackoverflow.com/questions/39761910/how-can-you-upload-files-as-a-stream-in-go/39781706
+// https://blog.depa.do/post/bufferless-multipart-post-in-go
+func PrepareMultipartPayload(fields map[string]interface{}) *MultipartPayload {
+	var buf [8]byte
+	if _, err := io.ReadFull(rand.Reader, buf[:]); err != nil {
+		panic(err)
+	}
+	boundary := fmt.Sprintf("%x", buf[:])
+	totalSize := 0
+	headers := map[string]string{
+		"Content-Type": fmt.Sprintf("multipart/form-data; boundary=%s", boundary),
+	}
+
+	parts := make([]io.Reader, 0)
+
+	fieldBoundary := "--" + boundary + crlf
+	str := strings.NewReader
+
+	for k, v := range fields {
+		if v == nil {
+			continue
+		}
+
+		parts = append(parts, str(fieldBoundary))
+		totalSize += len(fieldBoundary)
+
+		switch vf := v.(type) {
+		case string:
+			header := fmt.Sprintf(`Content-Disposition: form-data; name="%s"`, k)
+			parts = append(parts, str(header+crlf+crlf), str(v.(string)), str(crlf))
+			totalSize += len(header) + len(crlf+crlf) + len(v.(string)) + len(crlf)
+		case io.Reader:
+			ur := vf
+			for {
+				if underReader, ok := ur.(UnderReader); ok {
+					ur = underReader.GetUnderReader()
+				} else {
+					break
+				}
+			}
+
+			if fr, ok := ur.(PayloadFileReader); ok {
+				fileName := fr.FileName()
+				header := strings.Join([]string{
+					fmt.Sprintf(`Content-Disposition: form-data; name="%s"; filename="%s"`, k, filepath.Base(fileName)),
+					fmt.Sprintf(`Content-Type: %s`, mime.TypeByExtension(filepath.Ext(fileName))),
+					fmt.Sprintf(`Content-Length: %d`, fr.FileSize()),
+				}, crlf)
+				parts = append(parts, str(header+crlf+crlf), vf, str(crlf))
+				totalSize += len(header) + len(crlf+crlf) + int(fr.FileSize()) + len(crlf)
+			} else {
+				log.Printf("Ignore unsupported multipart payload type %t", v)
+			}
+		default:
+			log.Printf("Ignore unsupported multipart payload type %t", v)
+		}
+	}
+
+	finishBoundary := "--" + boundary + "--" + crlf
+	parts = append(parts, str(finishBoundary))
+	totalSize += len(finishBoundary)
+	headers["Content-Length"] = fmt.Sprintf("%d", totalSize)
+
+	return &MultipartPayload{headers: headers, body: io.MultiReader(parts...), size: int64(totalSize)}
 }

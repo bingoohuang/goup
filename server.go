@@ -56,9 +56,10 @@ func ServerHandle(chunkSize uint64, code string, cipher string) http.HandlerFunc
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_, err := w.Write(indexPage)
 			return err
-		case sessionID != "" && r.Method == http.MethodGet: // may be downloads
-			status := serveDownload(w, r, sessionID, cipher, cr, chunkSize)
-			w.WriteHeader(status)
+		case r.URL.Path != "/" && r.Method == http.MethodGet: // may be downloads
+			if status := serveDownload(w, r, sessionID, cipher, cr, chunkSize); status > 0 {
+				w.WriteHeader(status)
+			}
 		case r.Method == http.MethodPost:
 			return serveMultipartFormUpload(w, r, chunkSize)
 		default:
@@ -185,13 +186,20 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, co
 	}
 
 	filename := filepath.Base(fullPath)
+	if sessionID == "" {
+		if err := serveMultipartDownload(w, fullPath, filename); err != nil {
+			log.Printf("serveMultipartDownload error: %v", err)
+		}
+		return 0
+	}
+
 	if contentRange == "" {
 		totalSize := uint64(stat.Size())
 		partSize := GetPartSize(totalSize, chunkSize, 0)
 		cr := newChunkRange(0, chunkSize, partSize, totalSize)
 		w.Header().Set(ContentRange, cr.createContentRange())
 		w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
-		return http.StatusOK
+		return 0
 	}
 
 	cr, err := parseContentRange(contentRange)
@@ -234,7 +242,23 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, co
 	}
 
 	log.Printf("send file %s with session %s, range %s", filename, r.Header.Get(SessionID), contentRange)
-	return http.StatusOK
+	return 0
+}
+
+func serveMultipartDownload(w http.ResponseWriter, fullPath, filename string) error {
+	chunkReader, err := createChunkReader(fullPath, 0, 0)
+	if err != nil {
+		return err
+	}
+	defer Close(chunkReader)
+
+	w.Header().Set(ContentType, "application/octet-stream")
+	w.Header().Set(ContentLength, fmt.Sprintf("%d", chunkReader.(PayloadFileReader).FileSize()))
+	w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+
+	n, err := io.Copy(w, chunkReader)
+	log.Printf("send file %s bytes: %d, error: %v", fullPath, n, err)
+	return nil
 }
 
 func serveBodyAsFile(src io.Reader, contentFilename string) error {

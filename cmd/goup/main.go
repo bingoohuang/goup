@@ -118,7 +118,7 @@ func (a *Arg) processCode() {
 			log.Printf("failed to read password: %v", err)
 		}
 		_ = a.Code.Set(string(pwd))
-	} else if a.Code.String() == "" {
+	} else if a.Code.String() == "" && a.ServerUrl == "" {
 		_ = a.Code.Set(ksuid.New().String())
 		log.Printf("password is generate: %s", a.Code.String())
 	}

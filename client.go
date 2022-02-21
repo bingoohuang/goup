@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/bingoohuang/gg/pkg/ss"
+
 	"github.com/bingoohuang/goup/codec"
 	"github.com/minio/sio"
 
@@ -118,15 +120,60 @@ func New(url string, fns ...OptFn) (*Client, error) {
 
 // Start method initializes upload
 func (c *Client) Start() (err error) {
-	if err := c.setupSessionKey(); err != nil {
-		return err
+	if c.ChunkSize > 0 {
+		if err := c.setupSessionKey(); err != nil {
+			return err
+		}
 	}
 
 	if c.FullPath != "" { // for upload
 		return c.initUpload()
 	}
 
-	return c.initDownload()
+	if err := ensureDir(RootDir); err != nil {
+		return err
+	}
+
+	if c.ChunkSize > 0 {
+		return c.initDownload()
+	}
+
+	return c.multipartDownload()
+}
+
+func (c *Client) multipartDownload() error {
+	r, err := http.NewRequest(http.MethodGet, c.url, nil)
+	if err != nil {
+		return fmt.Errorf("http.NewRequest %s: %w", c.url, err)
+	}
+	r.Header.Set(Authorization, c.Bearer)
+	q, err := c.Client.Do(r)
+	if err != nil {
+		return err
+	}
+	if q.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status code: %d", q.StatusCode)
+	}
+
+	_, params, err := mime.ParseMediaType(q.Header.Get(ContentDisposition))
+	if err != nil {
+		return fmt.Errorf("parse Content-Disposition error: %w", err)
+	}
+	c.FullPath = filepath.Join(RootDir, params["filename"])
+	if length := ss.ParseUint64(q.Header.Get("Content-Length")); length > 0 {
+		c.TotalSize = length
+	}
+
+	log.Printf("Download %s started: %v", c.ID, c.FullPath)
+	defer log.Printf("Download %s complete: %v", c.ID, c.FullPath)
+
+	c.Progress.Start(c.TotalSize)
+	defer c.Progress.Finish()
+	if _, err := writeChunk(c.FullPath, c.Progress, q.Body, nil); err != nil {
+		log.Printf("write chunk error: %v", err)
+	}
+
+	return nil
 }
 
 func (c *Client) initDownload() error {
@@ -150,30 +197,21 @@ func (c *Client) initDownload() error {
 		return fmt.Errorf("parse contentRange %s error: %w", contentRange, err)
 	}
 
-	if err := ensureDir(RootDir); err != nil {
-		return err
-	}
-
 	_, params, err := mime.ParseMediaType(q.Header.Get(ContentDisposition))
 	if err != nil {
 		return fmt.Errorf("parse Content-Disposition error: %w", err)
 	}
 	c.FullPath = filepath.Join(RootDir, params["filename"])
 	c.TotalSize = cr.TotalSize
-	c.wg.Add(1)
 
-	go func() {
-		defer c.wg.Done()
+	log.Printf("Download %s started: %v", c.ID, c.FullPath)
+	defer log.Printf("Download %s complete: %v", c.ID, c.FullPath)
 
-		log.Printf("Download %s started: %v", c.ID, c.FullPath)
-		defer log.Printf("Download %s complete: %v", c.ID, c.FullPath)
-
-		c.Progress.Start(c.TotalSize)
-		defer c.Progress.Finish()
-		if err := c.do("download", c.downloadChunk); err != nil {
-			log.Printf("download error: %v", err)
-		}
-	}()
+	c.Progress.Start(c.TotalSize)
+	defer c.Progress.Finish()
+	if err := c.do("download", c.downloadChunk); err != nil {
+		log.Printf("download error: %v", err)
+	}
 
 	return nil
 }
@@ -196,7 +234,12 @@ func (c *Client) initUpload() error {
 		c.Progress.Start(c.TotalSize)
 		defer c.Progress.Finish()
 
-		if err := c.do("upload", c.uploadChunk); err != nil {
+		if err := func() error {
+			if c.ChunkSize == 0 {
+				return c.uploadMultipartForm()
+			}
+			return c.do("upload", c.uploadChunk)
+		}(); err != nil {
 			log.Printf("upload error: %v", err)
 		}
 	}()
@@ -310,6 +353,40 @@ func (c *Client) goJobs(operation string, job func(i uint64) error) {
 	wg.Wait()
 }
 
+func (c *Client) uploadMultipartForm() error {
+	fileReader, err := createChunkReader(c.FullPath, 0, 0)
+	if err != nil {
+		return err
+	}
+	defer Close(fileReader)
+
+	up := PrepareMultipartPayload(map[string]interface{}{
+		"file": &PbReader{Reader: fileReader, Adder: c.Progress},
+	})
+	r, err := http.NewRequest(http.MethodPost, c.url, up.body)
+	if err != nil {
+		return err
+	}
+	for k, v := range up.headers {
+		r.Header.Set(k, v)
+	}
+	r.ContentLength = up.size
+	r.Header.Set(SessionID, c.ID)
+	r.Header.Set(Authorization, c.Bearer)
+	q, err := c.Client.Do(r)
+	if err != nil {
+		return err
+	}
+	defer Close(q.Body)
+
+	io.Copy(io.Discard, q.Body)
+	if q.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status code: %d", q.StatusCode)
+	}
+
+	return nil
+}
+
 func (c *Client) uploadChunk(i uint64) error {
 	partSize := GetPartSize(c.TotalSize, c.ChunkSize, i)
 	if partSize <= 0 {
@@ -421,7 +498,7 @@ func (c *Client) chunkTransfer(chunkBody io.Reader, contentRange string, err err
 		}
 	}()
 
-	r, err := http.NewRequest(http.MethodPost, c.url, &PbReader{R: pr, Adder: c.Progress})
+	r, err := http.NewRequest(http.MethodPost, c.url, &PbReader{Reader: pr, Adder: c.Progress})
 	if err != nil {
 		return "", err
 	}

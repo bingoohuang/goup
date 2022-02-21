@@ -15,7 +15,9 @@ import (
 )
 
 func serveMultipartFormUpload(w http.ResponseWriter, r *http.Request, chunkSize uint64) error {
-	r.Body = http.MaxBytesReader(w, r.Body, int64(chunkSize))
+	if chunkSize > 0 {
+		r.Body = http.MaxBytesReader(w, r.Body, int64(chunkSize))
+	}
 
 	return NetHTTPUpload(w, r)
 }
