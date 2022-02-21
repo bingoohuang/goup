@@ -50,7 +50,7 @@ func ServerHandle(chunkSize uint64, code string, cipher string) http.HandlerFunc
 		case sessionID != "" && r.URL.Path == "/" && cr != "" && ss.AnyOf(r.Method, http.MethodPost, http.MethodGet):
 			return serveUpload(w, r, cr, sessionID, cipher, contentChecksum)
 		case r.URL.Path == "/" && r.Method == http.MethodGet:
-			if r.Header.Get("Accept") == "apllication/json" {
+			if r.Header.Get("Accept") == "application/json" {
 				return servList(w)
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")

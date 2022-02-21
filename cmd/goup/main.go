@@ -39,7 +39,7 @@ func (a Arg) Usage() string {
 	return fmt.Sprintf(`
 Usage of goup:
   -b    string Bearer token for client or server, auto for server to generate a random one
-  -c    string Chunk size for client, unit MB (default 10)
+  -c    string Chunk size for client, unit MB (default 10, 0 to disable chunks)
   -t    int    Threads (go-routines) for client
   -f    string Upload file path for client
   -p    int    Listening port for server
