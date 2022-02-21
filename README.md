@@ -16,15 +16,15 @@ program restarting either locally or to the server.
 | API | Method | PATH  | Session-ID | Content-Range | Content-Curve | Content-Filename | Content-Checksum | Content-Type | Content-Length | Content-Disposition | Content-Salt |       Accept       | Function                  |
 |----:|:------:|:------|:----------:|:-------------:|:-------------:|:----------------:|:----------------:|--------------|----------------|:--------------------|--------------|:------------------:|:--------------------------|
 |  1. |  POST  |       |            |               |               |       Req        |                  |              |                |                     |              |                    | 明文上传（文件内容作为 Body)         |
-|  1. |  POST  |       |            |               |               |                  |                  |              |                |                     |              |                    | 明文上传（multipart-form)      |
-|  1. |  POST  |       |    Req     |               |   Req,Resp    |       Req        |                  |              |                |                     |              |                    | PAKE 生成会话秘钥               |
-|  1. |  GET   | `/`   |    Req     |      Req      |               |                  |       Req        |              |                | Req                 |              |                    | 校验分块 checksum，返回 304 或 其它 |
-|  1. |  POST  | `/`   |    Req     |      Req      |               |                  |       Req        |              |                | Req                 | Req          |                    | 分块加密上传（加密分块内容作为 Body)     |
-|  1. |  GET   | `/`   |            |               |               |                  |                  |              |                |                     |              |  application/json  | JSON 返回服务端文件列表            |
-|  1. |  GET   | `/`   |            |               |               |                  |                  |              |                |                     |              | 非 application/json | 明文上传页面                    |
-|  1. |  GET   | `/`   |            |               |               |                  |                  | Resp         | Resp           | Resp                | Resp         |                    | 明文下载                      |
-|  1. |  GET   | `/`   |    Req     |     Resp      |               |                  |                  |              |                | Resp                |              |                    | 分块信息查询                    |
-|  1. |  GET   | `/`   |    Req     |   Req,Resp    |               |                  |       Req        | Resp         |                |                     | Resp         |                    | 分块加密下载                    |
+|  2. |  POST  |       |            |               |               |                  |                  |              |                |                     |              |                    | 明文上传（multipart-form)      |
+|  3. |  POST  |       |    Req     |               |   Req,Resp    |       Req        |                  |              |                |                     |              |                    | PAKE 生成会话秘钥               |
+|  4. |  GET   | `/`   |    Req     |      Req      |               |                  |       Req        |              |                | Req                 |              |                    | 校验分块 checksum，返回 304 或 其它 |
+|  5. |  POST  | `/`   |    Req     |      Req      |               |                  |       Req        |              |                | Req                 | Req          |                    | 分块加密上传（加密分块内容作为 Body)     |
+|  6. |  GET   | `/`   |            |               |               |                  |                  |              |                |                     |              |  application/json  | JSON 返回服务端文件列表            |
+|  7. |  GET   | `/`   |            |               |               |                  |                  |              |                |                     |              | 非 application/json | 明文上传页面                    |
+|  8. |  GET   | `/`   |            |               |               |                  |                  | Resp         | Resp           | Resp                | Resp         |                    | 明文下载                      |
+|  9. |  GET   | `/`   |    Req     |     Resp      |               |                  |                  |              |                | Resp                |              |                    | 分块信息查询                    |
+| 10. |  GET   | `/`   |    Req     |   Req,Resp    |               |                  |       Req        | Resp         |                |                     | Resp         |                    | 分块加密下载                    |
 
 ![](_doc/img.png)
 
