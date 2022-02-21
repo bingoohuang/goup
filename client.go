@@ -243,8 +243,8 @@ func (c *Client) downloadChunk(i uint64) error {
 	}
 	defer Close(q.Body)
 
-	c.Progress.Add(partSize)
 	if q.StatusCode == http.StatusNotModified {
+		c.Progress.Add(partSize)
 		return nil
 	}
 	if q.StatusCode != http.StatusOK {
@@ -276,7 +276,7 @@ func (c *Client) downloadChunk(i uint64) error {
 		}
 	}()
 
-	if _, err := writeChunk(c.FullPath, pr, cr); err != nil {
+	if _, err := writeChunk(c.FullPath, c.Progress, pr, cr); err != nil {
 		return fmt.Errorf("write chunk error: %w", err)
 	}
 	return nil
@@ -328,12 +328,10 @@ func (c *Client) uploadChunk(i uint64) error {
 	}
 	defer Close(r)
 
-	responseBody, err := c.chunkUpload(r, cr.createContentRange(), chunkChecksum)
+	responseBody, err := c.chunkUpload(r, cr, chunkChecksum)
 	if err != nil {
 		return fmt.Errorf("chunk %d upload: %w", i+1, err)
 	}
-
-	c.Progress.Add(partSize)
 
 	if _, err := parseContentRange(responseBody); err != nil {
 		return fmt.Errorf("parse body as size transferred %s: %w", responseBody, err)
@@ -391,12 +389,14 @@ func (c *Client) setupSessionKey() error {
 	return nil
 }
 
-func (c *Client) chunkUpload(part io.ReadCloser, contentRange string, chunkChecksum string) (string, error) {
+func (c *Client) chunkUpload(part io.ReadCloser, cr *chunkRange, chunkChecksum string) (string, error) {
+	contentRange := cr.createContentRange()
 	notModified, err := c.chunkUploadChecksum(chunkChecksum, contentRange)
 	if err != nil {
 		return "", err
 	}
 	if notModified {
+		c.Progress.Add(cr.PartSize)
 		return contentRange, nil
 	}
 
@@ -421,7 +421,7 @@ func (c *Client) chunkTransfer(chunkBody io.Reader, contentRange string, err err
 		}
 	}()
 
-	r, err := http.NewRequest(http.MethodPost, c.url, pr)
+	r, err := http.NewRequest(http.MethodPost, c.url, &PbReader{R: pr, Adder: c.Progress})
 	if err != nil {
 		return "", err
 	}

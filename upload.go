@@ -103,7 +103,7 @@ func saveFormFile(formFile *multipart.FileHeader, urlPath string) (string, int64
 		return fullPath, n, nil
 	}
 
-	n, err := writeChunk(fullPath, file, nil)
+	n, err := writeChunk(fullPath, nil, file, nil)
 	if err := file.Close(); err != nil {
 		return "", 0, err
 	}

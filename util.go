@@ -47,6 +47,11 @@ type Progress interface {
 	Finish()
 }
 
+// Adder defines a addable interface.
+type Adder interface {
+	Add(value uint64)
+}
+
 type noopProgressing struct{}
 
 func (n noopProgressing) Start(uint64) {}
@@ -83,7 +88,7 @@ func openChunk(fullPath string, cr *chunkRange) (f *os.File, err error) {
 	return f, nil
 }
 
-func writeChunk(fullPath string, chunk io.Reader, cr *chunkRange) (int64, error) {
+func writeChunk(fullPath string, progress Progress, chunk io.Reader, cr *chunkRange) (int64, error) {
 	f, err := openChunk(fullPath, cr)
 	if err != nil {
 		return 0, err
@@ -91,7 +96,7 @@ func writeChunk(fullPath string, chunk io.Reader, cr *chunkRange) (int64, error)
 
 	defer Close(f)
 
-	n, err := io.Copy(f, chunk)
+	n, err := io.Copy(f, &PbReader{R: chunk, Adder: progress})
 	if err != nil {
 		return 0, fmt.Errorf("write file %s error: %w", fullPath, err)
 	}
@@ -258,4 +263,16 @@ func Close(c io.Closer) {
 	if err := c.Close(); err != nil {
 		log.Printf("close error: %v", err)
 	}
+}
+
+// PbReader counts the bytes read through it.
+type PbReader struct {
+	R     io.Reader
+	Adder Adder
+}
+
+func (r PbReader) Read(p []byte) (n int, err error) {
+	n, err = r.R.Read(p)
+	r.Adder.Add(uint64(n))
+	return
 }
