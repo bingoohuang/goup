@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/bingoohuang/gg/pkg/fla9"
 	"log"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/bingoohuang/gg/pkg/fla9"
 
 	"github.com/bingoohuang/goup/codec"
 	"github.com/segmentio/ksuid"
@@ -116,9 +117,9 @@ func (a *Arg) processCode() {
 		if err != nil {
 			log.Printf("failed to read password: %v", err)
 		}
-		a.Code.Set(string(pwd))
+		_ = a.Code.Set(string(pwd))
 	} else if a.Code.String() == "" {
-		a.Code.Set(ksuid.New().String())
+		_ = a.Code.Set(ksuid.New().String())
 		log.Printf("password is generate: %s", a.Code.String())
 	}
 }
