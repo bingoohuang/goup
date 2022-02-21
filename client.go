@@ -223,26 +223,21 @@ func (c *Client) initUpload() error {
 	}
 
 	c.TotalSize = uint64(fileStat.Size())
-	c.wg.Add(1)
 
-	go func() {
-		defer c.wg.Done()
+	log.Printf("Upload %s started: %v", c.ID, c.FullPath)
+	defer log.Printf("Upload %s complete: %v", c.ID, c.FullPath)
 
-		log.Printf("Upload %s started: %v", c.ID, c.FullPath)
-		defer log.Printf("Upload %s complete: %v", c.ID, c.FullPath)
+	c.Progress.Start(c.TotalSize)
+	defer c.Progress.Finish()
 
-		c.Progress.Start(c.TotalSize)
-		defer c.Progress.Finish()
-
-		if err := func() error {
-			if c.ChunkSize == 0 {
-				return c.uploadMultipartForm()
-			}
-			return c.do("upload", c.uploadChunk)
-		}(); err != nil {
-			log.Printf("upload error: %v", err)
+	if err := func() error {
+		if c.ChunkSize == 0 {
+			return c.uploadMultipartForm()
 		}
-	}()
+		return c.do("upload", c.uploadChunk)
+	}(); err != nil {
+		log.Printf("upload error: %v", err)
+	}
 
 	return nil
 }

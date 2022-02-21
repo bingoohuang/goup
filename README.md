@@ -86,7 +86,17 @@ $ goup -u http://127.0.0.1:2110/246.png
 2022/01/21 13:29:44 download complete: .goup-files/246.png
 ```
 
-## normal upload support
+## normal upload/download support
 
-1. Start the server: `goup -c 100M`
+upload:
+
+1. Start the server without chunk: `goup -c0`
 2. Test the upload: `curl -F "file:=@a.mp4" localhost:2110`
+
+download:
+
+1. Start the server: `goup`
+2. Download
+    1. by [gurl](https://github.com/bingoohuang/gurl): `gurl :2110/246.png`
+    2. by curl: `curl -LO 127.0.0.1:2110/246.png`
+    3. by goup disable chunk: `goup -u :2110/246.png -c0`
