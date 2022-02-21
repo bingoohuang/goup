@@ -20,16 +20,17 @@ program restarting either locally or to the server.
 ```shell
 $ goup -h                                                       
 Usage of goup:
-  -b string bearer token for client or server, auto for server to generate a random one
-  -c int    chunk size for client, unit MB (default 10)
-  -t int    co-routins for client
-  -f string upload file path for client
-  -p int    listening port for server
-  -r string rename to another filename
-  -u string server upload url for client to connect to
-  -code string codephrase
-  -v    bool   show version
-  -init bool   create init ctl shell script
+  -b    string Bearer token for client or server, auto for server to generate a random one
+  -c    string Chunk size for client, unit MB (default 10)
+  -t    int    Threads (go-routines) for client
+  -f    string Upload file path for client
+  -p    int    Listening port for server
+  -r    string Rename to another filename
+  -u    string Server upload url for client to connect to
+  -P    string Password for PAKE
+  -C    string Cipher AES256: AES-256 GCM, C20P1305: ChaCha20 Poly1305
+  -v    bool   Show version
+  -init bool   Create init ctl shell script
 ```
 
 1. Installation `go install https://github.com/bingoohuang/goup`

@@ -3,7 +3,7 @@ module github.com/bingoohuang/goup
 go 1.17
 
 require (
-	github.com/bingoohuang/gg v0.0.0-20220120145114-6d60468481d4
+	github.com/bingoohuang/gg v0.0.0-20220221021130-31b6af753959
 	github.com/cespare/xxhash/v2 v2.1.1
 	github.com/cheggaaa/pb/v3 v3.0.8
 	github.com/minio/sio v0.3.0
