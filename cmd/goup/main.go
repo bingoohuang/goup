@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/vbauerster/mpb/v7/decor"
+
 	"github.com/bingoohuang/gg/pkg/fla9"
 
 	"github.com/bingoohuang/goup/codec"
@@ -18,6 +20,7 @@ import (
 	"github.com/bingoohuang/gg/pkg/v"
 
 	"github.com/bingoohuang/goup"
+	"github.com/vbauerster/mpb/v7"
 )
 
 type Arg struct {
@@ -54,17 +57,6 @@ Usage of goup:
 // VersionInfo is optional for customized version.
 func (a Arg) VersionInfo() string { return v.Version() }
 
-type pbProgress struct {
-	bar *pb.ProgressBar
-}
-
-func (p pbProgress) Start(value uint64) {
-	p.bar.SetTotal(int64(value))
-	p.bar.Start()
-}
-func (p pbProgress) Add(value uint64) { p.bar.Add64(int64(value)) }
-func (p pbProgress) Finish()          { p.bar.Finish() }
-
 func main() {
 	c := &Arg{}
 	flagparse.Parse(c)
@@ -87,15 +79,13 @@ func main() {
 		}
 		return
 	}
-	bar := pb.New(0)
-	bar.SetRefreshRate(100 * time.Millisecond)
-	bar.Set(pb.Bytes, true)
+
 	g, err := goup.New(c.ServerUrl,
 		goup.WithFullPath(c.FilePath),
 		goup.WithRename(c.Rename),
 		goup.WithBearer(c.BearerToken),
 		goup.WithChunkSize(c.ChunkSize),
-		goup.WithProgress(&pbProgress{bar: bar}),
+		goup.WithProgress(newMpbProgress()),
 		goup.WithCoroutines(c.Coroutines),
 		goup.WithCode(c.Code.String()),
 		goup.WithCipher(c.Cipher),
@@ -123,3 +113,61 @@ func (a *Arg) processCode() {
 		log.Printf("password is generate: %s", a.Code.String())
 	}
 }
+
+type mpbProgress struct {
+	bar   *mpb.Bar
+	start time.Time
+}
+
+func newMpbProgress() *mpbProgress {
+	return &mpbProgress{}
+}
+
+func (p *mpbProgress) Start(value uint64) {
+	mp := mpb.New(
+		mpb.WithWidth(60),
+		mpb.WithRefreshRate(180*time.Millisecond),
+	)
+
+	p.bar = mp.New(int64(value),
+		mpb.BarStyle().Rbound("|"),
+		mpb.PrependDecorators(
+			decor.CountersKibiByte("% .2f / % .2f"),
+		),
+		mpb.AppendDecorators(
+			decor.EwmaETA(decor.ET_STYLE_GO, 90),
+			decor.Name(" ] "),
+			decor.EwmaSpeed(decor.UnitKiB, "% .2f", 60),
+		),
+	)
+	p.start = time.Now()
+}
+
+func (p *mpbProgress) Add(n uint64) {
+	if n > 0 {
+		p.bar.IncrBy(int(n))
+		// we need to call DecoratorEwmaUpdate to fulfill ewma decorator's contract
+		p.bar.DecoratorEwmaUpdate(time.Since(p.start))
+		p.start = time.Now()
+	}
+}
+func (p mpbProgress) Finish() {}
+
+type pbProgress struct {
+	bar *pb.ProgressBar
+}
+
+func newPbProgress() *pbProgress {
+	bar := pb.New(0)
+	bar.SetRefreshRate(100 * time.Millisecond)
+	bar.Set(pb.Bytes, true)
+
+	return &pbProgress{bar: bar}
+}
+
+func (p pbProgress) Start(value uint64) {
+	p.bar.SetTotal(int64(value))
+	p.bar.Start()
+}
+func (p pbProgress) Add(value uint64) { p.bar.Add64(int64(value)) }
+func (p pbProgress) Finish()          { p.bar.Finish() }
