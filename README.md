@@ -23,8 +23,8 @@ program restarting either locally or to the server.
 |  6. |  GET   | `/`   |            |               |               |                  |                  |              |                |                     |              |  application/json  | JSON 返回服务端文件列表            |
 |  7. |  GET   | `/`   |            |               |               |                  |                  |              |                |                     |              | 非 application/json | 明文上传页面                    |
 |  8. |  GET   | `/`   |            |               |               |                  |                  | Resp         | Resp           | Resp                | Resp         |                    | 明文下载                      |
-|  9. |  GET   | `/`   |    Req     |     Resp      |               |                  |                  |              |                | Resp                |              |                    | 分块信息查询                    |
-| 10. |  GET   | `/`   |    Req     |   Req,Resp    |               |                  |       Req        | Resp         |                |                     | Resp         |                    | 分块加密下载                    |
+|  9. |  GET   | ! `/` |    Req     |     Resp      |               |                  |                  |              |                | Resp                |              |                    | 分块信息查询                    |
+| 10. |  GET   | ! `/` |    Req     |   Req,Resp    |               |                  |       Req        | Resp         |                |                     | Resp         |                    | 分块加密下载                    |
 
 ![](_doc/img.png)
 
