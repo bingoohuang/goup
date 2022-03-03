@@ -326,7 +326,9 @@ func (r PbReader) GetUnderReader() io.Reader { return r.Reader }
 
 func (r PbReader) Read(p []byte) (n int, err error) {
 	n, err = r.Reader.Read(p)
-	r.Adder.Add(uint64(n))
+	if r.Adder != nil {
+		r.Adder.Add(uint64(n))
+	}
 	return
 }
 

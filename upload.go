@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/bingoohuang/gg/pkg/man"
 	"github.com/segmentio/ksuid"
@@ -19,7 +20,7 @@ func serveMultipartFormUpload(w http.ResponseWriter, r *http.Request, chunkSize 
 		r.Body = http.MaxBytesReader(w, r.Body, int64(chunkSize))
 	}
 
-	return NetHTTPUpload(w, r)
+	return NetHTTPUpload(w, r, chunkSize)
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) error {
@@ -34,13 +35,20 @@ func writeJSON(w http.ResponseWriter, v interface{}) error {
 }
 
 type uploadResult struct {
-	File     string
-	FileSize string
+	File      string
+	FileSize  string
+	Cost      string
+	Start     string
+	End       string
+	MaxMemory string
+	LimitSize string
 }
 
 // NetHTTPUpload upload
-func NetHTTPUpload(w http.ResponseWriter, r *http.Request) error {
-	if err := r.ParseMultipartForm(16 /*16 MiB */ << 20); err != nil {
+func NetHTTPUpload(w http.ResponseWriter, r *http.Request, maxBytes uint64) error {
+	start := time.Now()
+	maxMemory := 16 /*16 MiB */ << 20
+	if err := r.ParseMultipartForm(int64(maxMemory)); err != nil {
 		return err
 	}
 
@@ -56,9 +64,15 @@ func NetHTTPUpload(w http.ResponseWriter, r *http.Request) error {
 
 	log.Printf("recieved file %s", file)
 
+	end := time.Now()
 	return writeJSON(w, uploadResult{
-		File:     file,
-		FileSize: man.Bytes(uint64(n)),
+		Start:     start.UTC().Format(http.TimeFormat),
+		End:       end.UTC().Format(http.TimeFormat),
+		File:      file,
+		MaxMemory: man.Bytes(uint64(maxMemory)),
+		LimitSize: man.Bytes(maxBytes),
+		FileSize:  man.Bytes(uint64(n)),
+		Cost:      end.Sub(start).String(),
 	})
 }
 
