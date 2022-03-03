@@ -213,9 +213,9 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, co
 		}
 	}
 
-	chunkReader, err := createChunkReader(fullPath, cr.From, cr.To)
+	chunkReader, err := CreateChunkReader(fullPath, cr.From, cr.To)
 	if err != nil {
-		log.Printf("createChunkReader %s chunk: %v", fullPath, err)
+		log.Printf("CreateChunkReader %s chunk: %v", fullPath, err)
 		return http.StatusInternalServerError
 	}
 	defer Close(chunkReader)
@@ -243,7 +243,7 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, co
 }
 
 func serveMultipartDownload(w http.ResponseWriter, fullPath, filename string) error {
-	chunkReader, err := createChunkReader(fullPath, 0, 0)
+	chunkReader, err := CreateChunkReader(fullPath, 0, 0)
 	if err != nil {
 		return err
 	}

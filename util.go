@@ -190,7 +190,8 @@ func readChunkChecksum(fullPath string, partFrom, partTo uint64) (checksum strin
 	return checksum, nil
 }
 
-func createChunkReader(fullPath string, partFrom, partTo uint64) (r io.ReadCloser, err error) {
+// CreateChunkReader creates a chunk reader for the file.
+func CreateChunkReader(fullPath string, partFrom, partTo uint64) (r io.ReadCloser, err error) {
 	if fileNotExists(fullPath) {
 		return nil, nil
 	}

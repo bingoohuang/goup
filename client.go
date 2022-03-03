@@ -351,7 +351,7 @@ func (c *Client) goJobs(operation string, job func(i uint64) error) {
 }
 
 func (c *Client) uploadMultipartForm() error {
-	fileReader, err := createChunkReader(c.FullPath, 0, 0)
+	fileReader, err := CreateChunkReader(c.FullPath, 0, 0)
 	if err != nil {
 		return err
 	}
@@ -396,9 +396,9 @@ func (c *Client) uploadChunk(i uint64) error {
 	if err != nil {
 		return fmt.Errorf("readChunkChecksum %s: %w", c.FullPath, err)
 	}
-	r, err := createChunkReader(c.FullPath, cr.From, cr.To)
+	r, err := CreateChunkReader(c.FullPath, cr.From, cr.To)
 	if err != nil {
-		return fmt.Errorf("createChunkReader %s: %w", c.FullPath, err)
+		return fmt.Errorf("CreateChunkReader %s: %w", c.FullPath, err)
 	}
 	defer Close(r)
 
