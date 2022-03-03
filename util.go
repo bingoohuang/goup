@@ -7,6 +7,8 @@ import (
 	"io"
 	"log"
 	"mime"
+	"net/textproto"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -22,27 +24,56 @@ import (
 var RootDir = "./.goup"
 
 const (
-	// SessionID is the header name for Session-ID
-	SessionID = "Session-ID"
 	// Authorization is the header name for Authorization
 	Authorization = "Authorization"
-	// ContentRange is the header name for Content-Range
-	ContentRange = "Content-Range"
 	// ContentDisposition is header name for Content-Disposition
 	ContentDisposition = "Content-Disposition"
 	// ContentType is the header name for Content-Type
 	ContentType = "Content-Type"
 	// ContentLength is the header name for Content-Length
 	ContentLength = "Content-Length"
-	// ContentChecksum is the header name for Content-Checksum
-	ContentChecksum = "Content-Checksum"
-	// ContentCurve is the header name for Content-Curve
-	ContentCurve = "Content-Curve"
-	// ContentSalt is the header name for Content-Salt
-	ContentSalt = "Content-Salt"
-	// ContentFilename is the header name for Content-Filename
-	ContentFilename = "Content-Filename"
 )
+
+// Header is a header structure for the goup file transfer.
+type Header struct {
+	Session  string
+	Checksum string
+	Curve    string
+	Salt     string
+	Range    string
+	Filename string
+}
+
+// ParseHeader parse the Content-Gulp Header to structure.
+func ParseHeader(header string) Header {
+	m := map[string]string{}
+	items := strings.Split(header, ";")
+	for _, item := range items {
+		pos := strings.Index(item, "=")
+		var k, v string
+		if pos < 0 {
+			k = item
+			v = ""
+		} else if pos >= 0 {
+			k = item[:pos]
+			v = item[pos+1:]
+		}
+		k, _ = url.QueryUnescape(k)
+		v, _ = url.QueryUnescape(v)
+		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+		if k != "" {
+			m[textproto.CanonicalMIMEHeaderKey(k)] = v
+		}
+	}
+
+	return Header{
+		Session:  m["Session"],
+		Checksum: m["Checksum"],
+		Curve:    m["Curve"],
+		Salt:     m["Salt"],
+		Range:    m["Range"],
+	}
+}
 
 // Progress is a progress bar interface.
 type Progress interface {

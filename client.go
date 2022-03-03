@@ -181,20 +181,20 @@ func (c *Client) initDownload() error {
 	if err != nil {
 		return fmt.Errorf("http.NewRequest %s: %w", c.url, err)
 	}
-	r.Header.Set(SessionID, c.ID)
+	r.Header.Set("Content-Gulp", "Session="+c.ID)
 	r.Header.Set(Authorization, c.Bearer)
 	q, err := c.Client.Do(r)
 	if err != nil {
 		return err
 	}
-	contentRange := q.Header.Get(ContentRange)
-	if q.StatusCode != http.StatusOK || contentRange == "" {
+	h := ParseHeader(q.Header.Get("Content-Gulp"))
+	if q.StatusCode != http.StatusOK || h.Range == "" {
 		return fmt.Errorf("no file to donwload or upload")
 	}
 
-	cr, err := parseContentRange(contentRange)
+	cr, err := parseContentRange(h.Range)
 	if err != nil {
-		return fmt.Errorf("parse contentRange %s error: %w", contentRange, err)
+		return fmt.Errorf("parse contentRange %s error: %w", h.Range, err)
 	}
 
 	_, params, err := mime.ParseMediaType(q.Header.Get(ContentDisposition))
@@ -237,6 +237,7 @@ func (c *Client) initUpload() error {
 		return c.do("upload", c.uploadChunk)
 	}(); err != nil {
 		log.Printf("upload error: %v", err)
+		return err
 	}
 
 	return nil
@@ -270,11 +271,11 @@ func (c *Client) downloadChunk(i uint64) error {
 	}
 
 	r, err := http.NewRequest(http.MethodGet, c.url, nil)
-	r.Header.Set(SessionID, c.ID)
 	r.Header.Set(Authorization, c.Bearer)
-	r.Header.Set(ContentRange, cr.createContentRange())
+	r.Header.Set("Content-Gulp", "Session="+c.ID+
+		"; Range="+cr.createContentRange()+
+		"; Checksum="+chunkChecksum)
 	r.Header.Set(ContentDisposition, c.contentDisposition)
-	r.Header.Set(ContentChecksum, chunkChecksum)
 	q, err := c.Client.Do(r)
 	if err != nil {
 		return err
@@ -289,7 +290,8 @@ func (c *Client) downloadChunk(i uint64) error {
 		return fmt.Errorf("bad status code: %d", q.StatusCode)
 	}
 
-	salt, err := base64.RawURLEncoding.DecodeString(q.Header.Get(ContentSalt))
+	h := ParseHeader(q.Header.Get("Content-Gulp"))
+	salt, err := base64.RawURLEncoding.DecodeString(h.Salt)
 	if err != nil {
 		return err
 	}
@@ -366,7 +368,7 @@ func (c *Client) uploadMultipartForm() error {
 		r.Header.Set(k, v)
 	}
 	r.ContentLength = up.size
-	r.Header.Set(SessionID, c.ID)
+	r.Header.Set("Content-Gulp", "Session:"+c.ID)
 	r.Header.Set(Authorization, c.Bearer)
 	q, err := c.Client.Do(r)
 	if err != nil {
@@ -374,7 +376,7 @@ func (c *Client) uploadMultipartForm() error {
 	}
 	defer Close(q.Body)
 
-	io.Copy(io.Discard, q.Body)
+	_, _ = io.Copy(io.Discard, q.Body)
 	if q.StatusCode != http.StatusOK {
 		return fmt.Errorf("bad status code: %d", q.StatusCode)
 	}
@@ -434,9 +436,9 @@ func (c *Client) setupSessionKey() error {
 	if err != nil {
 		return err
 	}
-	r.Header.Set(SessionID, c.ID)
 	r.Header.Set(Authorization, c.Bearer)
-	r.Header.Set(ContentCurve, base64.RawURLEncoding.EncodeToString(a.Bytes()))
+	r.Header.Set("Content-Gulp", "Session="+c.ID+
+		"; Curve="+base64.RawURLEncoding.EncodeToString(a.Bytes()))
 	q, err := c.Client.Do(r)
 	if err != nil {
 		return err
@@ -445,8 +447,8 @@ func (c *Client) setupSessionKey() error {
 		return fmt.Errorf("bad status code: %d", q.StatusCode)
 	}
 
-	cc := q.Header.Get(ContentCurve)
-	b, err := base64.RawURLEncoding.DecodeString(cc)
+	h := ParseHeader(q.Header.Get("Content-Gulp"))
+	b, err := base64.RawURLEncoding.DecodeString(h.Curve)
 	if err != nil {
 		return fmt.Errorf("base64 decode error: %w", err)
 	} else if err := a.Update(b); err != nil {
@@ -498,12 +500,12 @@ func (c *Client) chunkTransfer(chunkBody io.Reader, contentRange string, err err
 		return "", err
 	}
 
-	r.Header.Set(SessionID, c.ID)
 	r.Header.Set(Authorization, c.Bearer)
 	r.Header.Set(ContentType, "application/octet-stream")
 	r.Header.Set(ContentDisposition, c.contentDisposition)
-	r.Header.Set(ContentRange, contentRange)
-	r.Header.Set(ContentSalt, base64.RawURLEncoding.EncodeToString(salt))
+	r.Header.Set("Content-Gulp", "Session="+c.ID+
+		"; Range="+contentRange+
+		"; Salt="+base64.RawURLEncoding.EncodeToString(salt))
 	q, err := c.Client.Do(r)
 	if err != nil {
 		return "", err
@@ -516,7 +518,7 @@ func (c *Client) chunkTransfer(chunkBody io.Reader, contentRange string, err err
 	}
 
 	if q.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("bad status code: %d", q.StatusCode)
+		return "", fmt.Errorf("bad status code: %d, body: %s", q.StatusCode, body)
 	}
 
 	return string(body), nil
@@ -525,11 +527,11 @@ func (c *Client) chunkTransfer(chunkBody io.Reader, contentRange string, err err
 func (c *Client) chunkUploadChecksum(chunkChecksum, contentRange string) (bool, error) {
 	r, err := http.NewRequest(http.MethodGet, c.url, nil)
 
-	r.Header.Set(SessionID, c.ID)
 	r.Header.Set(Authorization, c.Bearer)
-	r.Header.Set(ContentRange, contentRange)
 	r.Header.Set(ContentDisposition, c.contentDisposition)
-	r.Header.Set(ContentChecksum, chunkChecksum)
+	r.Header.Set("Content-Gulp", "Session="+c.ID+
+		"; Range="+contentRange+
+		"; Checksum="+chunkChecksum)
 	q, err := c.Client.Do(r)
 	if err != nil {
 		return false, err

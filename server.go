@@ -36,19 +36,15 @@ func InitServer() error {
 // ServerHandle is main request/response handler for HTTP server.
 func ServerHandle(chunkSize uint64, code string, cipher string) http.HandlerFunc {
 	f := func(w http.ResponseWriter, r *http.Request) error {
-		sessionID := r.Header.Get(SessionID)
-		cr := r.Header.Get(ContentRange)
-		contentCurve := r.Header.Get(ContentCurve)
-		contentFilename := r.Header.Get(ContentFilename)
-		contentChecksum := r.Header.Get(ContentChecksum)
+		h := ParseHeader(r.Header.Get("Content-Gulp"))
 
 		switch {
-		case contentFilename != "" && r.Method == http.MethodPost:
-			return serveBodyAsFile(r.Body, contentFilename)
-		case sessionID != "" && contentCurve != "" && r.Method == http.MethodPost:
-			return servePake(w, sessionID, code, contentCurve)
-		case sessionID != "" && r.URL.Path == "/" && cr != "" && ss.AnyOf(r.Method, http.MethodPost, http.MethodGet):
-			return serveUpload(w, r, cr, sessionID, cipher, contentChecksum)
+		case h.Filename != "" && r.Method == http.MethodPost:
+			return serveBodyAsFile(r.Body, h.Filename)
+		case h.Session != "" && h.Curve != "" && r.Method == http.MethodPost:
+			return servePake(w, h.Session, code, h.Curve)
+		case h.Session != "" && r.URL.Path == "/" && h.Range != "" && ss.AnyOf(r.Method, http.MethodPost, http.MethodGet):
+			return serveUpload(w, r, h.Range, h.Session, cipher, h.Checksum, h.Salt)
 		case r.URL.Path == "/" && r.Method == http.MethodGet:
 			if r.Header.Get("Accept") == "application/json" {
 				return servList(w)
@@ -57,7 +53,7 @@ func ServerHandle(chunkSize uint64, code string, cipher string) http.HandlerFunc
 			_, err := w.Write(indexPage)
 			return err
 		case r.URL.Path != "/" && r.Method == http.MethodGet: // may be downloads
-			if status := serveDownload(w, r, sessionID, cipher, cr, chunkSize); status > 0 {
+			if status := serveDownload(w, r, h.Session, cipher, h.Range, h.Checksum, chunkSize); status > 0 {
 				w.WriteHeader(status)
 			}
 		case r.Method == http.MethodPost:
@@ -146,7 +142,7 @@ func servePake(w http.ResponseWriter, sessionID, code, contentCurve string) erro
 	}
 
 	setSessionKey(sessionID, bk)
-	w.Header().Set(ContentCurve, base64.RawURLEncoding.EncodeToString(bb))
+	w.Header().Set("Content-Gulp", "Curve="+base64.RawURLEncoding.EncodeToString(bb))
 	return nil
 }
 
@@ -178,7 +174,7 @@ func servList(w http.ResponseWriter) error {
 	return jsoni.NewEncoder(w).Encode(context.Background(), entries)
 }
 
-func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, contentRange string, chunkSize uint64) int {
+func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, contentRange, checksum string, chunkSize uint64) int {
 	fullPath := filepath.Join(RootDir, "."+r.URL.Path)
 	stat, err := os.Stat(fullPath)
 	if os.IsNotExist(err) {
@@ -197,7 +193,8 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, co
 		totalSize := uint64(stat.Size())
 		partSize := GetPartSize(totalSize, chunkSize, 0)
 		cr := newChunkRange(0, chunkSize, partSize, totalSize)
-		w.Header().Set(ContentRange, cr.createContentRange())
+		w.Header().Set("Content-Gulp", "Range="+cr.createContentRange())
+		w.Header().Set(ContentType, "application/octet-stream")
 		w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 		return 0
 	}
@@ -208,9 +205,9 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, co
 		return http.StatusInternalServerError
 	}
 
-	if sum := r.Header.Get(ContentChecksum); sum != "" {
-		if old, _ := readChunkChecksum(fullPath, cr.From, cr.To); old == sum {
-			log.Printf("304 file %s with session %s, range %s", filename, r.Header.Get(SessionID), contentRange)
+	if checksum != "" {
+		if old, _ := readChunkChecksum(fullPath, cr.From, cr.To); old == checksum {
+			log.Printf("304 file %s with session %s, range %s", filename, sessionID, contentRange)
 			return http.StatusNotModified
 		}
 	}
@@ -231,8 +228,7 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, co
 
 	w.Header().Set(ContentType, "application/octet-stream")
 	w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
-	w.Header().Set(ContentRange, contentRange)
-	w.Header().Set(ContentSalt, base64.RawURLEncoding.EncodeToString(salt))
+	w.Header().Set("Content-Gulp", "Rang="+contentRange+"; Salt="+base64.RawURLEncoding.EncodeToString(salt))
 
 	_, cipherSuites := parseCipherSuites(cipher)
 	cfg := sio.Config{Key: key, CipherSuites: cipherSuites}
@@ -241,7 +237,7 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, co
 		return http.StatusInternalServerError
 	}
 
-	log.Printf("send file %s with session %s, range %s", filename, r.Header.Get(SessionID), contentRange)
+	log.Printf("send file %s with session %s, range %s", filename, sessionID, contentRange)
 	return 0
 }
 
@@ -277,7 +273,7 @@ func serveBodyAsFile(src io.Reader, contentFilename string) error {
 	return nil
 }
 
-func serveUpload(w http.ResponseWriter, r *http.Request, contentRange, sessionID, cipher, contentChecksum string) error {
+func serveUpload(w http.ResponseWriter, r *http.Request, contentRange, sessionID, cipher, contentChecksum, headerSalt string) error {
 	cr, err := parseContentRange(contentRange)
 	if err != nil {
 		return fmt.Errorf("parse contentRange %s error: %w", contentRange, err)
@@ -300,7 +296,7 @@ func serveUpload(w http.ResponseWriter, r *http.Request, contentRange, sessionID
 		return nil
 	}
 
-	salt, err := base64.RawURLEncoding.DecodeString(r.Header.Get(ContentSalt))
+	salt, err := base64.RawURLEncoding.DecodeString(headerSalt)
 	if err != nil {
 		return err
 	}
