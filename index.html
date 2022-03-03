@@ -49,7 +49,7 @@
         };
 
         xhr.open("POST", '/', true)
-        xhr.setRequestHeader('Content-Filename', encodeURIComponent(file.name))
+        xhr.setRequestHeader('Content-Gulp', 'Filename=' + encodeURIComponent(file.name))
         xhr.setRequestHeader("Content-Type", file.type)
 
         // Send the binary data.

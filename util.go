@@ -72,6 +72,7 @@ func ParseHeader(header string) Header {
 		Curve:    m["Curve"],
 		Salt:     m["Salt"],
 		Range:    m["Range"],
+		Filename: m["Filename"],
 	}
 }
 

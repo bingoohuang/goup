@@ -25,6 +25,7 @@ import (
 	"github.com/bingoohuang/gg/pkg/jsoni"
 )
 
+// for Drag and Drop File Uploading, https://css-tricks.com/drag-and-drop-file-uploading/
 //go:embed index.html
 var indexPage []byte
 
