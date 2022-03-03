@@ -88,6 +88,12 @@ type Adder interface {
 	Add(value uint64)
 }
 
+type AdderFn func(value uint64)
+
+func (f AdderFn) Add(value uint64) {
+	f(value)
+}
+
 type noopProgressing struct{}
 
 func (n noopProgressing) Start(uint64) {}
