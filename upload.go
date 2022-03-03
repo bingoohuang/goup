@@ -3,11 +3,13 @@ package goup
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"time"
 
@@ -35,8 +37,9 @@ func writeJSON(w http.ResponseWriter, v interface{}) error {
 }
 
 type uploadResult struct {
-	File      string
-	FileSize  string
+	Files     []string
+	FileSizes []string
+	TotalSize string
 	Cost      string
 	Start     string
 	End       string
@@ -52,26 +55,32 @@ func NetHTTPUpload(w http.ResponseWriter, r *http.Request, maxBytes uint64) erro
 		return err
 	}
 
-	formFile, err := ParseFormFile(r.MultipartForm)
-	if err != nil {
-		return err
+	totalSize := int64(0)
+	fileCount := len(r.MultipartForm.File)
+	index := 0
+	var files []string
+	var fileSizes []string
+	for k, v := range r.MultipartForm.File {
+		index++
+		file, n, err := saveFormFile(v[0], r.URL.Path, index, fileCount)
+		if err != nil {
+			return err
+		}
+		totalSize += n
+		files = append(files, file)
+		fileSizes = append(fileSizes, man.Bytes(uint64(n)))
+		log.Printf("recieved file %s: %s", k, file)
 	}
-
-	file, n, err := saveFormFile(formFile, r.URL.Path)
-	if err != nil {
-		return err
-	}
-
-	log.Printf("recieved file %s", file)
 
 	end := time.Now()
 	return writeJSON(w, uploadResult{
 		Start:     start.UTC().Format(http.TimeFormat),
 		End:       end.UTC().Format(http.TimeFormat),
-		File:      file,
+		Files:     files,
+		FileSizes: fileSizes,
 		MaxMemory: man.Bytes(uint64(maxMemory)),
 		LimitSize: man.Bytes(maxBytes),
-		FileSize:  man.Bytes(uint64(n)),
+		TotalSize: man.Bytes(uint64(totalSize)),
 		Cost:      end.Sub(start).String(),
 	})
 }
@@ -95,13 +104,24 @@ func ParseFormFile(m *multipart.Form) (*multipart.FileHeader, error) {
 // ErrMissingFile may be returned from FormFile when the is no uploaded file.
 var ErrMissingFile = errors.New("there is no uploaded file")
 
-func saveFormFile(formFile *multipart.FileHeader, urlPath string) (string, int64, error) {
+func TrimExt(filepath, ext string) string {
+	return filepath[:len(filepath)-len(ext)]
+}
+
+func saveFormFile(formFile *multipart.FileHeader, urlPath string, fileIndex, fileCount int) (string, int64, error) {
 	file, err := formFile.Open()
 	if err != nil {
 		return "", 0, err
 	}
 
-	filename := firstFilename(filepath.Base(urlPath), filepath.Base(formFile.Filename), ksuid.New().String())
+	base := filepath.Base(urlPath)
+	if base != "/" {
+		if fileCount > 1 {
+			ext := path.Ext(base)
+			base = fmt.Sprintf("%s.%d%s", TrimExt(base, ext), fileIndex, ext)
+		}
+	}
+	filename := firstFilename(base, filepath.Base(formFile.Filename), ksuid.New().String())
 	fullPath := filepath.Join(RootDir, filename)
 
 	// use temporary file directly
