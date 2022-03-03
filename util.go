@@ -335,9 +335,9 @@ func (r PbReader) Read(p []byte) (n int, err error) {
 
 // MultipartPayload is the multipart payload.
 type MultipartPayload struct {
-	headers map[string]string
-	body    io.Reader
-	size    int64
+	Headers map[string]string
+	Body    io.Reader
+	Size    int64
 }
 
 // PayloadFileReader is the interface which means a reader which represents a file.
@@ -445,5 +445,5 @@ func PrepareMultipartPayload(fields map[string]interface{}) *MultipartPayload {
 	totalSize += len(finishBoundary)
 	headers["Content-Length"] = fmt.Sprintf("%d", totalSize)
 
-	return &MultipartPayload{headers: headers, body: io.MultiReader(parts...), size: int64(totalSize)}
+	return &MultipartPayload{Headers: headers, Body: io.MultiReader(parts...), Size: int64(totalSize)}
 }

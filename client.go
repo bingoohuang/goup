@@ -360,14 +360,14 @@ func (c *Client) uploadMultipartForm() error {
 	up := PrepareMultipartPayload(map[string]interface{}{
 		"file": &PbReader{Reader: fileReader, Adder: c.Progress},
 	})
-	r, err := http.NewRequest(http.MethodPost, c.url, up.body)
+	r, err := http.NewRequest(http.MethodPost, c.url, up.Body)
 	if err != nil {
 		return err
 	}
-	for k, v := range up.headers {
+	for k, v := range up.Headers {
 		r.Header.Set(k, v)
 	}
-	r.ContentLength = up.size
+	r.ContentLength = up.Size
 	r.Header.Set("Content-Gulp", "Session:"+c.ID)
 	r.Header.Set(Authorization, c.Bearer)
 	q, err := c.Client.Do(r)
