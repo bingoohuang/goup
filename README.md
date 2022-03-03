@@ -11,7 +11,7 @@ program restarting either locally or to the server.
 1. splitting large file into smaller chunks.
 2. uploading/downloading by HTTP.
 3. resume-able. chunk's hash will be checked before transfer.
-4. security data by AES-GCM based on PAKE.
+4. security data by AES-GCM based on [PAKE](https://github.com/schollz/pake).
 
 | API | Method | Req Content-Gulp         | Rsp Content-Gulp | Other Headers                                          | Function                                           |
 |----:|:-------|:-------------------------|------------------|:-------------------------------------------------------|:---------------------------------------------------|
