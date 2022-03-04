@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/bingoohuang/goup/shapeio"
+
 	"github.com/bingoohuang/gg/pkg/ss"
 
 	"github.com/bingoohuang/goup/codec"
@@ -32,6 +34,7 @@ type Client struct {
 	wg                 sync.WaitGroup
 	contentDisposition string
 	sessionKey         []byte
+	LimitRate          uint64
 }
 
 // GetParts get the number of chunk parts.
@@ -42,6 +45,7 @@ func (c *Client) GetParts() uint64 {
 // Opt is the client options.
 type Opt struct {
 	ChunkSize uint64
+	LimitRate uint64
 	Progress
 	*http.Client
 	Rename     string
@@ -60,6 +64,9 @@ func WithHTTPClient(v *http.Client) OptFn { return func(c *Opt) { c.Client = v }
 
 // WithChunkSize set ChunkSize.
 func WithChunkSize(v uint64) OptFn { return func(c *Opt) { c.ChunkSize = v } }
+
+// WithLimitRate set LimitRate.
+func WithLimitRate(v uint64) OptFn { return func(c *Opt) { c.LimitRate = v } }
 
 // WithProgress set WithProgress.
 func WithProgress(v Progress) OptFn { return func(c *Opt) { c.Progress = v } }
@@ -162,6 +169,10 @@ func (c *Client) multipartDownload() error {
 	c.FullPath = filepath.Join(RootDir, params["filename"])
 	if length := ss.ParseUint64(q.Header.Get("Content-Length")); length > 0 {
 		c.TotalSize = length
+	}
+
+	if c.LimitRate > 0 {
+		q.Body = shapeio.NewReader(q.Body, shapeio.WithRateLimit(float64(c.LimitRate)))
 	}
 
 	log.Printf("Download %s started: %v", c.ID, c.FullPath)
@@ -300,6 +311,10 @@ func (c *Client) downloadChunk(i uint64) error {
 		return fmt.Errorf("response body is nil")
 	}
 
+	if c.LimitRate > 0 {
+		q.Body = shapeio.NewReader(q.Body, shapeio.WithRateLimit(float64(c.LimitRate)))
+	}
+
 	key, _, err := codec.Scrypt(c.sessionKey, salt)
 	if err != nil {
 		return err
@@ -351,7 +366,7 @@ func (c *Client) goJobs(operation string, job func(i uint64) error) {
 }
 
 func (c *Client) uploadMultipartForm() error {
-	fileReader, err := CreateChunkReader(c.FullPath, 0, 0)
+	fileReader, err := CreateChunkReader(c.FullPath, 0, 0, c.LimitRate)
 	if err != nil {
 		return err
 	}
@@ -396,7 +411,7 @@ func (c *Client) uploadChunk(i uint64) error {
 	if err != nil {
 		return fmt.Errorf("readChunkChecksum %s: %w", c.FullPath, err)
 	}
-	r, err := CreateChunkReader(c.FullPath, cr.From, cr.To)
+	r, err := CreateChunkReader(c.FullPath, cr.From, cr.To, c.LimitRate)
 	if err != nil {
 		return fmt.Errorf("CreateChunkReader %s: %w", c.FullPath, err)
 	}

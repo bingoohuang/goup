@@ -17,15 +17,8 @@ import (
 	"github.com/segmentio/ksuid"
 )
 
-func serveMultipartFormUpload(w http.ResponseWriter, r *http.Request, chunkSize uint64) error {
-	if chunkSize > 0 {
-		r.Body = http.MaxBytesReader(w, r.Body, int64(chunkSize))
-	}
-
-	return NetHTTPUpload(w, r, chunkSize)
-}
-
-func writeJSON(w http.ResponseWriter, v interface{}) error {
+// WriteJSON writes the JSON of v to http.ResponseWriter.
+func WriteJSON(w http.ResponseWriter, v interface{}) error {
 	js, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -36,15 +29,16 @@ func writeJSON(w http.ResponseWriter, v interface{}) error {
 	return err
 }
 
-type uploadResult struct {
-	Files     []string
-	FileSizes []string
-	TotalSize string
-	Cost      string
-	Start     string
-	End       string
-	MaxMemory string
-	LimitSize string
+// UploadResult is the structure of download result.
+type UploadResult struct {
+	Files         []string
+	FileSizes     []string
+	TotalSize     string
+	Cost          string
+	Start         string
+	End           string
+	MaxTempMemory string
+	LimitSize     string
 }
 
 // NetHTTPUpload upload
@@ -73,15 +67,15 @@ func NetHTTPUpload(w http.ResponseWriter, r *http.Request, maxBytes uint64) erro
 	}
 
 	end := time.Now()
-	return writeJSON(w, uploadResult{
-		Start:     start.UTC().Format(http.TimeFormat),
-		End:       end.UTC().Format(http.TimeFormat),
-		Files:     files,
-		FileSizes: fileSizes,
-		MaxMemory: man.Bytes(uint64(maxMemory)),
-		LimitSize: man.Bytes(maxBytes),
-		TotalSize: man.Bytes(uint64(totalSize)),
-		Cost:      end.Sub(start).String(),
+	return WriteJSON(w, UploadResult{
+		Start:         start.UTC().Format(http.TimeFormat),
+		End:           end.UTC().Format(http.TimeFormat),
+		Files:         files,
+		FileSizes:     fileSizes,
+		MaxTempMemory: man.Bytes(uint64(maxMemory)),
+		LimitSize:     man.Bytes(maxBytes),
+		TotalSize:     man.Bytes(uint64(totalSize)),
+		Cost:          end.Sub(start).String(),
 	})
 }
 
@@ -104,6 +98,7 @@ func ParseFormFile(m *multipart.Form) (*multipart.FileHeader, error) {
 // ErrMissingFile may be returned from FormFile when the is no uploaded file.
 var ErrMissingFile = errors.New("there is no uploaded file")
 
+// TrimExt trim ext from the right of filepath.
 func TrimExt(filepath, ext string) string {
 	return filepath[:len(filepath)-len(ext)]
 }

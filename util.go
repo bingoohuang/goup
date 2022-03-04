@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/bingoohuang/goup/shapeio"
+
 	"go.uber.org/multierr"
 
 	"github.com/cespare/xxhash/v2"
@@ -88,8 +90,10 @@ type Adder interface {
 	Add(value uint64)
 }
 
+// AdderFn is a func prototype which implements Adder interface.
 type AdderFn func(value uint64)
 
+// Add adds a value.
 func (f AdderFn) Add(value uint64) {
 	f(value)
 }
@@ -197,7 +201,7 @@ func readChunkChecksum(fullPath string, partFrom, partTo uint64) (checksum strin
 }
 
 // CreateChunkReader creates a chunk reader for the file.
-func CreateChunkReader(fullPath string, partFrom, partTo uint64) (r io.ReadCloser, err error) {
+func CreateChunkReader(fullPath string, partFrom, partTo uint64, limitRate uint64) (r io.ReadCloser, err error) {
 	if fileNotExists(fullPath) {
 		return nil, fmt.Errorf("file %s not exists", fullPath)
 	}
@@ -228,7 +232,12 @@ func CreateChunkReader(fullPath string, partFrom, partTo uint64) (r io.ReadClose
 		return nil, err
 	}
 
-	return &PayloadFile{ReadCloser: f, Name: f.Name(), Size: stat.Size()}, nil
+	pf := &PayloadFile{ReadCloser: f, Name: f.Name(), Size: stat.Size()}
+	if limitRate > 0 {
+		pf.ReadCloser = shapeio.NewReader(pf.ReadCloser, shapeio.WithRateLimit(float64(limitRate)))
+	}
+
+	return pf, nil
 }
 
 // GetPartSize get the part size of idx-th chunk.

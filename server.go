@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bingoohuang/goup/shapeio"
+
 	"github.com/bingoohuang/gg/pkg/ss"
 
 	"github.com/bingoohuang/goup/codec"
@@ -34,10 +36,37 @@ func InitServer() error {
 	return ensureDir(RootDir)
 }
 
+type limitResponseWriter struct {
+	http.ResponseWriter
+	*shapeio.RateLimiter
+}
+
+// Write writes bytes from p.
+func (s *limitResponseWriter) Write(p []byte) (int, error) {
+	n, err := s.ResponseWriter.Write(p)
+	if err != nil || s.Limiter == nil {
+		return n, err
+	}
+
+	err = s.WaitN(s.Context, n)
+	return n, err
+}
+
 // ServerHandle is main request/response handler for HTTP server.
-func ServerHandle(chunkSize uint64, code string, cipher string) http.HandlerFunc {
+func ServerHandle(code string, cipher string, chunkSize, limitRate uint64) http.HandlerFunc {
 	f := func(w http.ResponseWriter, r *http.Request) error {
 		h := ParseHeader(r.Header.Get("Content-Gulp"))
+		if chunkSize > 0 {
+			r.Body = http.MaxBytesReader(w, r.Body, int64(chunkSize))
+		}
+		if limitRate > 0 {
+			limit := shapeio.WithRateLimit(float64(limitRate))
+			r.Body = shapeio.NewReader(r.Body, limit)
+			w = &limitResponseWriter{
+				ResponseWriter: w,
+				RateLimiter:    shapeio.NewRateLimiter(limit),
+			}
+		}
 
 		switch {
 		case h.Filename != "" && r.Method == http.MethodPost:
@@ -58,7 +87,7 @@ func ServerHandle(chunkSize uint64, code string, cipher string) http.HandlerFunc
 				w.WriteHeader(status)
 			}
 		case r.Method == http.MethodPost:
-			return serveMultipartFormUpload(w, r, chunkSize)
+			return NetHTTPUpload(w, r, chunkSize)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -213,7 +242,7 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, co
 		}
 	}
 
-	chunkReader, err := CreateChunkReader(fullPath, cr.From, cr.To)
+	chunkReader, err := CreateChunkReader(fullPath, cr.From, cr.To, 0)
 	if err != nil {
 		log.Printf("CreateChunkReader %s chunk: %v", fullPath, err)
 		return http.StatusInternalServerError
@@ -243,7 +272,7 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, co
 }
 
 func serveMultipartDownload(w http.ResponseWriter, fullPath, filename string) error {
-	chunkReader, err := CreateChunkReader(fullPath, 0, 0)
+	chunkReader, err := CreateChunkReader(fullPath, 0, 0, 0)
 	if err != nil {
 		return err
 	}
