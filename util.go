@@ -200,6 +200,24 @@ func readChunkChecksum(fullPath string, partFrom, partTo uint64) (checksum strin
 	return checksum, nil
 }
 
+// Rewinder is an interface for anything that can be rewind like a file reader to seek start.
+type Rewinder interface {
+	Rewind() error
+}
+
+// RewinderFn is a func which implements Rewinder.
+type RewinderFn func() error
+
+// Rewind do rewind.
+func (f RewinderFn) Rewind() error {
+	return f()
+}
+
+type ReadCloseRewriter struct {
+	io.ReadCloser
+	Rewinder
+}
+
 // CreateChunkReader creates a chunk reader for the file.
 func CreateChunkReader(fullPath string, partFrom, partTo uint64, limitRate uint64) (r io.ReadCloser, err error) {
 	if fileNotExists(fullPath) {
@@ -232,7 +250,13 @@ func CreateChunkReader(fullPath string, partFrom, partTo uint64, limitRate uint6
 		return nil, err
 	}
 
-	pf := &PayloadFile{ReadCloser: f, Name: f.Name(), Size: stat.Size()}
+	pf := &PayloadFile{ReadCloser: &ReadCloseRewriter{
+		ReadCloser: f,
+		Rewinder: RewinderFn(func() error {
+			_, err := f.Seek(0, io.SeekStart)
+			return err
+		}),
+	}, Name: f.Name(), Size: stat.Size()}
 	if limitRate > 0 {
 		pf.ReadCloser = shapeio.NewReader(pf.ReadCloser, shapeio.WithRateLimit(float64(limitRate)))
 	}
