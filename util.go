@@ -250,18 +250,21 @@ func CreateChunkReader(fullPath string, partFrom, partTo uint64, limitRate uint6
 		return nil, err
 	}
 
-	pf := &PayloadFile{ReadCloser: &ReadCloseRewriter{
-		ReadCloser: f,
-		Rewindable: RewindableFn(func() error {
-			_, err := f.Seek(0, io.SeekStart)
-			return err
-		}),
-	}, Name: f.Name(), Size: stat.Size()}
+	pf := &PayloadFile{ReadCloser: f, Name: f.Name(), Size: stat.Size()}
+
 	if limitRate > 0 {
 		pf.ReadCloser = shapeio.NewReader(pf.ReadCloser, shapeio.WithRateLimit(float64(limitRate)))
 	}
 
-	return pf, nil
+	rcr := &ReadCloseRewriter{
+		ReadCloser: pf,
+		Rewindable: RewindableFn(func() error {
+			_, err := f.Seek(0, io.SeekStart)
+			return err
+		}),
+	}
+
+	return rcr, nil
 }
 
 // GetPartSize get the part size of idx-th chunk.
