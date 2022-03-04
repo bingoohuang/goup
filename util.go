@@ -200,22 +200,22 @@ func readChunkChecksum(fullPath string, partFrom, partTo uint64) (checksum strin
 	return checksum, nil
 }
 
-// Rewinder is an interface for anything that can be rewind like a file reader to seek start.
-type Rewinder interface {
+// Rewindable is an interface for anything that can be rewind like a file reader to seek start.
+type Rewindable interface {
 	Rewind() error
 }
 
-// RewinderFn is a func which implements Rewinder.
-type RewinderFn func() error
+// RewindableFn is a func which implements Rewindable.
+type RewindableFn func() error
 
 // Rewind do rewind.
-func (f RewinderFn) Rewind() error {
+func (f RewindableFn) Rewind() error {
 	return f()
 }
 
 type ReadCloseRewriter struct {
 	io.ReadCloser
-	Rewinder
+	Rewindable
 }
 
 // CreateChunkReader creates a chunk reader for the file.
@@ -252,7 +252,7 @@ func CreateChunkReader(fullPath string, partFrom, partTo uint64, limitRate uint6
 
 	pf := &PayloadFile{ReadCloser: &ReadCloseRewriter{
 		ReadCloser: f,
-		Rewinder: RewinderFn(func() error {
+		Rewindable: RewindableFn(func() error {
 			_, err := f.Seek(0, io.SeekStart)
 			return err
 		}),
