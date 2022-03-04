@@ -356,21 +356,12 @@ func Close(c io.Closer) {
 	}
 }
 
-// UnderReader returns the under wrapped io.Reader.
-type UnderReader interface {
-	GetUnderReader() io.Reader
-}
-
-// PbReader counts the bytes read through it.
 type PbReader struct {
 	io.Reader
-	Adder Adder
+	Adder
 }
 
-// GetUnderReader returns the under wrapped io.Reader.
-func (r PbReader) GetUnderReader() io.Reader { return r.Reader }
-
-func (r PbReader) Read(p []byte) (n int, err error) {
+func (r *PbReader) Read(p []byte) (n int, err error) {
 	n, err = r.Reader.Read(p)
 	if r.Adder != nil {
 		r.Adder.Add(uint64(n))
@@ -383,10 +374,6 @@ type MultipartPayload struct {
 	Headers map[string]string
 	Body    io.Reader
 	Size    int64
-}
-
-func (mr *MultipartPayload) Rewind() (err error) {
-	return Rewind(mr.Body)
 }
 
 // PayloadFileReader is the interface which means a reader which represents a file.
@@ -412,30 +399,6 @@ func (p PayloadFile) FileSize() int64 { return p.Size }
 const (
 	crlf = "\r\n"
 )
-
-// RewindableReader is a wrapper for rewindable io.Reader.
-type RewindableReader struct {
-	io.Reader
-}
-
-// NewRewindableSeeker creates RewindableReader.
-func NewRewindableSeeker(reader io.Reader) *RewindableReader {
-	return &RewindableReader{
-		Reader: reader,
-	}
-}
-
-// Read implements the io.Reader interface.
-// if the returned err is io.EOF, a rewind will try to be called.
-func (r RewindableReader) Read(p []byte) (n int, err error) {
-	n, err = r.Reader.Read(p)
-
-	if err != nil && errors.Is(err, io.EOF) {
-		err = Rewind(r.Reader)
-	}
-
-	return
-}
 
 func Rewind(reader io.Reader) (err error) {
 	if r1, ok1 := reader.(io.Seeker); ok1 {
@@ -483,9 +446,7 @@ func PrepareMultipartPayload(fields map[string]interface{}) *MultipartPayload {
 	parts := make([]io.Reader, 0)
 
 	fieldBoundary := "--" + boundary + crlf
-	str := func(s string) io.Reader {
-		return NewRewindableSeeker(strings.NewReader(s))
-	}
+	str := strings.NewReader
 
 	for k, v := range fields {
 		if v == nil {
@@ -501,24 +462,15 @@ func PrepareMultipartPayload(fields map[string]interface{}) *MultipartPayload {
 			parts = append(parts, str(header+crlf+crlf), str(v.(string)), str(crlf))
 			totalSize += len(header) + len(crlf+crlf) + len(v.(string)) + len(crlf)
 		case io.Reader:
-			ur := vf
-			for {
-				if underReader, ok := ur.(UnderReader); ok {
-					ur = underReader.GetUnderReader()
-				} else {
-					break
-				}
-			}
-
-			if fr, ok := ur.(PayloadFileReader); ok {
-				fileName := fr.FileName()
+			if pf, ok := vf.(PayloadFileReader); ok {
+				fileName := pf.FileName()
 				header := strings.Join([]string{
 					fmt.Sprintf(`Content-Disposition: form-data; name="%s"; filename="%s"`, k, filepath.Base(fileName)),
 					fmt.Sprintf(`Content-Type: %s`, mime.TypeByExtension(filepath.Ext(fileName))),
-					fmt.Sprintf(`Content-Length: %d`, fr.FileSize()),
+					fmt.Sprintf(`Content-Length: %d`, pf.FileSize()),
 				}, crlf)
 				parts = append(parts, str(header+crlf+crlf), vf, str(crlf))
-				totalSize += len(header) + len(crlf+crlf) + int(fr.FileSize()) + len(crlf)
+				totalSize += len(header) + len(crlf+crlf) + int(pf.FileSize()) + len(crlf)
 			} else {
 				log.Printf("Ignore unsupported multipart payload type %t", v)
 			}
@@ -541,19 +493,15 @@ type RewindableMultiReader struct {
 	readerIndex int
 }
 
-func (mr *RewindableMultiReader) Rewind() (err error) {
-	for _, reader := range mr.readers {
-		e0 := Rewind(reader)
-		err = multierr.Append(err, e0)
-	}
-
-	return
-}
-
 func (mr *RewindableMultiReader) Read(p []byte) (n int, err error) {
 	for mr.readerIndex < len(mr.readers) {
-		n, err = mr.readers[mr.readerIndex].Read(p)
-		if err == io.EOF {
+		reader := mr.readers[mr.readerIndex]
+		n, err = reader.Read(p)
+		if err != nil && errors.Is(err, io.EOF) {
+			if err0 := Rewind(reader); err0 != nil {
+				return n, err0
+			}
+
 			mr.readerIndex++
 			err = nil
 			continue
