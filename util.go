@@ -214,7 +214,7 @@ func (f RewindableFn) Rewind() error {
 	return f()
 }
 
-type ReadCloseRewriter struct {
+type readCloseRewindable struct {
 	io.ReadCloser
 	PayloadFileReader
 	Rewindable
@@ -258,7 +258,7 @@ func CreateChunkReader(fullPath string, partFrom, partTo uint64, limitRate uint6
 		pf.ReadCloser = shapeio.NewReader(pf.ReadCloser, shapeio.WithRateLimit(float64(limitRate)))
 	}
 
-	rcr := &ReadCloseRewriter{
+	rcr := &readCloseRewindable{
 		ReadCloser:        pf,
 		PayloadFileReader: pf,
 		Rewindable: RewindableFn(func() error {
@@ -525,6 +525,7 @@ func PrepareMultipartPayload(fields map[string]interface{}) *MultipartPayload {
 	return &MultipartPayload{Headers: headers, Body: NewRewindableMultiReader(parts...), Size: int64(totalSize)}
 }
 
+// RewindableMultiReader implements a rewindable multi-reader.
 type RewindableMultiReader struct {
 	readers     []io.Reader
 	readerIndex int
