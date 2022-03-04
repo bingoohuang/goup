@@ -3,6 +3,7 @@ package goup
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -215,6 +216,7 @@ func (f RewindableFn) Rewind() error {
 
 type ReadCloseRewriter struct {
 	io.ReadCloser
+	PayloadFileReader
 	Rewindable
 }
 
@@ -257,7 +259,8 @@ func CreateChunkReader(fullPath string, partFrom, partTo uint64, limitRate uint6
 	}
 
 	rcr := &ReadCloseRewriter{
-		ReadCloser: pf,
+		ReadCloser:        pf,
+		PayloadFileReader: pf,
 		Rewindable: RewindableFn(func() error {
 			_, err := f.Seek(0, io.SeekStart)
 			return err
@@ -384,8 +387,6 @@ type MultipartPayload struct {
 
 // PayloadFileReader is the interface which means a reader which represents a file.
 type PayloadFileReader interface {
-	io.Reader
-
 	FileName() string
 	FileSize() int64
 }
@@ -407,6 +408,38 @@ func (p PayloadFile) FileSize() int64 { return p.Size }
 const (
 	crlf = "\r\n"
 )
+
+// RewindableReader is a wrapper for rewindable io.Reader.
+type RewindableReader struct {
+	io.Reader
+}
+
+// NewRewindableSeeker creates RewindableReader.
+func NewRewindableSeeker(reader io.Reader) *RewindableReader {
+	return &RewindableReader{
+		Reader: reader,
+	}
+}
+
+// Read implements the io.Reader interface.
+// if the returned err is io.EOF, a rewind will try to be called.
+func (r RewindableReader) Read(p []byte) (n int, err error) {
+	n, err = r.Reader.Read(p)
+
+	if err != nil && errors.Is(err, io.EOF) {
+		if rr, ok := r.Reader.(io.Seeker); ok {
+			if _, err := rr.Seek(0, io.SeekStart); err != nil {
+				log.Printf("seek error: %v", err)
+			}
+		} else if rr, ok := r.Reader.(Rewindable); ok {
+			if err := rr.Rewind(); err != nil {
+				log.Printf("rewind error: %v", err)
+			}
+		}
+	}
+
+	return
+}
 
 // PrepareMultipartPayload prepares the multipart playload of http request.
 // Multipart request has the following structure:
@@ -440,7 +473,9 @@ func PrepareMultipartPayload(fields map[string]interface{}) *MultipartPayload {
 	parts := make([]io.Reader, 0)
 
 	fieldBoundary := "--" + boundary + crlf
-	str := strings.NewReader
+	str := func(s string) io.Reader {
+		return NewRewindableSeeker(strings.NewReader(s))
+	}
 
 	for k, v := range fields {
 		if v == nil {
@@ -487,5 +522,37 @@ func PrepareMultipartPayload(fields map[string]interface{}) *MultipartPayload {
 	totalSize += len(finishBoundary)
 	headers["Content-Length"] = fmt.Sprintf("%d", totalSize)
 
-	return &MultipartPayload{Headers: headers, Body: io.MultiReader(parts...), Size: int64(totalSize)}
+	return &MultipartPayload{Headers: headers, Body: NewRewindableMultiReader(parts...), Size: int64(totalSize)}
+}
+
+type RewindableMultiReader struct {
+	readers     []io.Reader
+	readerIndex int
+}
+
+func (mr *RewindableMultiReader) Read(p []byte) (n int, err error) {
+	for mr.readerIndex < len(mr.readers) {
+		n, err = mr.readers[mr.readerIndex].Read(p)
+		if err == io.EOF {
+			mr.readerIndex++
+			err = nil
+			continue
+		}
+		if n > 0 {
+			return
+		}
+	}
+
+	mr.readerIndex = 0
+	return 0, io.EOF
+}
+
+// NewRewindableMultiReader returns a Reader that's the logical concatenation of
+// the provided input readers. They're read sequentially. Once all
+// inputs have returned EOF, Read will return EOF.  If any of the readers
+// return a non-nil, non-EOF error, Read will return that error.
+func NewRewindableMultiReader(readers ...io.Reader) io.Reader {
+	r := make([]io.Reader, len(readers))
+	copy(r, readers)
+	return &RewindableMultiReader{readers: r}
 }
