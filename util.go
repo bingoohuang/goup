@@ -356,6 +356,7 @@ func Close(c io.Closer) {
 	}
 }
 
+// PbReader is a wrapper reader for Adder.
 type PbReader struct {
 	io.Reader
 	Adder
@@ -400,6 +401,7 @@ const (
 	crlf = "\r\n"
 )
 
+// Rewind rewinds the io.Reader.
 func Rewind(reader io.Reader) (err error) {
 	if r1, ok1 := reader.(io.Seeker); ok1 {
 		if _, e0 := r1.Seek(0, io.SeekStart); e0 != nil {
