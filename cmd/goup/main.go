@@ -104,7 +104,7 @@ func main() {
 }
 
 func (a *Arg) processCode() {
-	if a.Code.AsBool() {
+	if a.Code.Exists {
 		pwd, err := codec.ReadPassword(os.Stdin)
 		if err != nil {
 			log.Printf("failed to read password: %v", err)

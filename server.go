@@ -1,6 +1,7 @@
 package goup
 
 import (
+	"compress/gzip"
 	"context"
 	_ "embed" // embed
 	"encoding/base64"
@@ -12,8 +13,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/bingoohuang/gg/pkg/iox"
 
 	"github.com/bingoohuang/goup/shapeio"
 
@@ -213,7 +217,7 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, co
 
 	filename := filepath.Base(fullPath)
 	if sessionID == "" {
-		if err := serveMultipartDownload(w, fullPath, filename); err != nil {
+		if err := serveMultipartDownload(w, r, fullPath, filename); err != nil {
 			log.Printf("serveMultipartDownload error: %v", err)
 		}
 		return 0
@@ -271,18 +275,25 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, co
 	return 0
 }
 
-func serveMultipartDownload(w http.ResponseWriter, fullPath, filename string) error {
+func serveMultipartDownload(w http.ResponseWriter, r *http.Request, fullPath, filename string) error {
 	chunkReader, err := CreateChunkReader(fullPath, 0, 0, 0)
 	if err != nil {
 		return err
 	}
 	defer Close(chunkReader)
 
+	var dst io.Writer = w
+	if gzipAllowed := strings.Contains(r.Header.Get("Accept-Encoding"), "gzip"); gzipAllowed {
+		w.Header().Set("Content-Encoding", "gzip")
+		gz := gzip.NewWriter(dst)
+		defer iox.Close(gz)
+		dst = gz
+	}
 	w.Header().Set(ContentType, "application/octet-stream")
 	w.Header().Set(ContentLength, fmt.Sprintf("%d", chunkReader.(PayloadFileReader).FileSize()))
 	w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 
-	n, err := io.Copy(w, chunkReader)
+	n, err := io.Copy(dst, chunkReader)
 	log.Printf("send file %s bytes: %d, error: %v", fullPath, n, err)
 	return nil
 }
