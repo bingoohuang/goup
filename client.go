@@ -111,13 +111,13 @@ func New(url string, fns ...OptFn) (*Client, error) {
 		opt.Bearer = bearerPrefix + opt.Bearer
 	}
 
-	fixedURL, err := rest.FixURI(url)
-	if err != nil {
-		return nil, err
+	fixedURL := rest.FixURI(url)
+	if !fixedURL.OK() {
+		return nil, fixedURL.Err
 	}
 	g := &Client{
 		Opt:                opt,
-		url:                fixedURL,
+		url:                fixedURL.Data.String(),
 		contentDisposition: mime.FormatMediaType("attachment", map[string]string{"filename": fileName}),
 		ID:                 generateSessionID(),
 	}

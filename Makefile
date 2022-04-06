@@ -19,8 +19,7 @@ extldflags := -extldflags -static
 # https://github.com/kubermatic/kubeone/blob/master/Makefile
 flags1 = -s -w -X $(pkg).BuildTime=$(buildTime) -X $(pkg).AppVersion=$(appVersion) -X $(pkg).GitCommit=$(gitInfo) -X $(pkg).GoVersion=$(goVersion)
 flags2 = ${extldflags} ${flags1}
-goinstall1 = go install -trimpath -ldflags='${flags1}' ./...
-goinstall2 = go install -trimpath -ldflags='${flags2}' ./...
+goinstall = go install -trimpath -ldflags='${flags1}' ./...
 gobin := $(shell go env GOBIN)
 # try $GOPATN/bin if $gobin is empty
 gobin := $(if $(gobin),$(gobin),$(shell go env GOPATH)/bin)
@@ -55,17 +54,17 @@ fmt:
 	gci -w -local github.com/daixiang0/gci
 
 install: init
-	${goinstall1}
+	${goinstall}
 	upx --best --lzma ${gobin}/${app}
 	ls -lh ${gobin}/${app}
 linux: init
-	GOOS=linux GOARCH=amd64 ${goinstall1}
-	upx --best --lzma ${gobin}/linux_amd64/${app}*
-	ls -lh  ${gobin}/linux_amd64/${app}*
+	GOOS=linux GOARCH=amd64 ${goinstall}
+	upx --best --lzma ${gobin}/linux_amd64/${app}
+	ls -lh  ${gobin}/linux_amd64/${app}
 arm: init
-	GOOS=linux GOARCH=arm64 ${goinstall1}
-	upx --best --lzma ${gobin}/linux_arm64/${app}*
-	ls -lh  ${gobin}/linux_arm64/${app}*
+	GOOS=linux GOARCH=arm64 ${goinstall}
+	upx --best --lzma ${gobin}/linux_arm64/${app}
+	ls -lh  ${gobin}/linux_arm64/${app}
 
 upx:
 	ls -lh ${gobin}/${app}
