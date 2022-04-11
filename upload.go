@@ -42,7 +42,7 @@ type UploadResult struct {
 }
 
 // NetHTTPUpload upload
-func NetHTTPUpload(w http.ResponseWriter, r *http.Request, maxBytes uint64) error {
+func NetHTTPUpload(w http.ResponseWriter, r *http.Request, rootDir string, maxBytes uint64) error {
 	start := time.Now()
 	maxMemory := 16 /*16 MiB */ << 20
 	if err := r.ParseMultipartForm(int64(maxMemory)); err != nil {
@@ -56,7 +56,7 @@ func NetHTTPUpload(w http.ResponseWriter, r *http.Request, maxBytes uint64) erro
 	var fileSizes []string
 	for k, v := range r.MultipartForm.File {
 		index++
-		file, n, err := saveFormFile(v[0], r.URL.Path, index, fileCount)
+		file, n, err := saveFormFile(v[0], r.URL.Path, rootDir, index, fileCount)
 		if err != nil {
 			return err
 		}
@@ -103,8 +103,8 @@ func TrimExt(filepath, ext string) string {
 	return filepath[:len(filepath)-len(ext)]
 }
 
-func saveFormFile(formFile *multipart.FileHeader, urlPath string, fileIndex, fileCount int) (string, int64, error) {
-	file, err := formFile.Open()
+func saveFormFile(fh *multipart.FileHeader, rootDir, urlPath string, fileIndex, fileCount int) (string, int64, error) {
+	file, err := fh.Open()
 	if err != nil {
 		return "", 0, err
 	}
@@ -116,8 +116,8 @@ func saveFormFile(formFile *multipart.FileHeader, urlPath string, fileIndex, fil
 			base = fmt.Sprintf("%s.%d%s", TrimExt(base, ext), fileIndex, ext)
 		}
 	}
-	filename := firstFilename(base, filepath.Base(formFile.Filename), ksuid.New().String())
-	fullPath := filepath.Join(RootDir, filename)
+	filename := firstFilename(base, filepath.Base(fh.Filename), ksuid.New().String())
+	fullPath := filepath.Join(rootDir, filename)
 
 	// use temporary file directly
 	if f, ok := file.(*os.File); ok {

@@ -91,7 +91,7 @@ func ServerHandle(code string, cipher string, chunkSize, limitRate uint64) http.
 				w.WriteHeader(status)
 			}
 		case r.Method == http.MethodPost:
-			return NetHTTPUpload(w, r, chunkSize)
+			return NetHTTPUpload(w, r, RootDir, chunkSize)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}

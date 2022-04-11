@@ -13,23 +13,23 @@ program restarting either locally or to the server.
 3. resume-able. chunk's hash will be checked before transfer.
 4. security data by AES-GCM based on [PAKE](https://github.com/schollz/pake).
 
-| API | Method | Req Content-Gulp         | Rsp Content-Gulp | Other Headers                                          | Function                                           |
-|----:|:-------|:-------------------------|------------------|:-------------------------------------------------------|:---------------------------------------------------|
-|  1. | POST   | Filename                 |                  |                                                        | 明文上传（文件作为 Body)                                    |
-|  2. | POST   | Session, Curve           | Curve,           |                                                        | PAKE 生成会话秘钥                                        |
-|  3. | GET /  | Session, Range, Checksum |                  | Req: Content-Disposition                               | 校验分块 checksum，返回 304 或 其它                          |
-|  4. | POST / | Session, Range, Salt     |                  | Req: Content-Disposition                               | 分块加密上传（加密分块作为 Body)                                |
+| API | Method | Req Content-Gulp         | Rsp Content-Gulp | Other Headers                                          | Function                                                         |
+| --: | :----- | :----------------------- | ---------------- | :----------------------------------------------------- | :--------------------------------------------------------------- |
+|  1. | POST   | Filename                 |                  |                                                        | 明文上传（文件作为 Body)                                         |
+|  2. | POST   | Session, Curve           | Curve,           |                                                        | PAKE 生成会话秘钥                                                |
+|  3. | GET /  | Session, Range, Checksum |                  | Req: Content-Disposition                               | 校验分块 checksum，返回 304 或 其它                              |
+|  4. | POST / | Session, Range, Salt     |                  | Req: Content-Disposition                               | 分块加密上传（加密分块作为 Body)                                 |
 |  5. | GET /  |                          |                  |                                                        | HTML JS 上传页面 / 服务端文件列表（Accept: application/json 时） |
-|  6. | GET /  | Session, Range, Checksum | Range, Salt      | Rsp: Content-Type , Content-Disposition                | 分块加密下载                                             |
-|  7. | GET /  |                          | Salt             | Rsp: Content-Type, Content-Length, Content-Disposition | 明文下载                                               |
-|  8. | POST   |                          |                  |                                                        | 明文上传（multipart-form)                               |
+|  6. | GET /  | Session, Range, Checksum | Range, Salt      | Rsp: Content-Type , Content-Disposition                | 分块加密下载                                                     |
+|  7. | GET /  |                          | Salt             | Rsp: Content-Type, Content-Length, Content-Disposition | 明文下载                                                         |
+|  8. | POST   |                          |                  |                                                        | 明文上传（multipart-form)                                        |
 
 ![](_doc/img.png)
 
 ## Usage
 
 ```shell
-$ goup -h                                                       
+$ goup -h
 Usage of goup:
   -b    string Bearer token for client or server, auto for server to generate a random one
   -c    string Chunk size for client, unit MB (default 10)
@@ -46,7 +46,7 @@ Usage of goup:
 
 1. Installation `go install https://github.com/bingoohuang/goup`
 1. At the server, `goup`
-2. At the client, `goup -u http://a.b.c:2110/ -f 246.png`
+1. At the client, `goup -u http://a.b.c:2110/ -f 246.png`
 
 ```sh
 $ goup
@@ -62,7 +62,7 @@ $ goup
 2022/01/20 17:40:47 recieved file 246.png with sessionID 46CB3E789B10DDB5, range bytes 83886080-94371840/96894303
 2022/01/20 17:40:47 recieved file 246.png with sessionID 46CB3E789B10DDB5, range bytes 94371840-96894303/96894303
 
-$ md5sum .goup-files/246.png 
+$ md5sum .goup-files/246.png
 5849c383ab841e539673d50a49c3f39a  .goup-files/aDrive.dmg
 $ sha256sum .goup-files/246.png
 32677ca3a5b19ee5590a75d423b3fc2d754bd76900d50c26e0525681985189f8  .goup-files/aDrive.dmg
@@ -71,14 +71,14 @@ $ sha256sum .goup-files/246.png
 upload example:
 
 ```sh
-$ goup -u http://127.0.0.1:2110/ -f 246.png                           
+$ goup -u http://127.0.0.1:2110/ -f 246.png
 2022/01/20 17:44:08 Upload B821C49E4B1CBDBD started
-40.00 MiB / 92.41 MiB [-------------------------------------------------------------------->__________________________________________________________________________________________] 43.29% ? p/s^C
+40.00 MiB / 92.41 MiB [------------------>____________________] 43.29% ? p/s^C
 $ diff -s /Users/bingoobjca/Downloads/goup/.goup-files/246.png 246.png
 Binary files /Users/bingoobjca/Downloads/goup/.goup-files/246.png and 246.png differ
-$ goup -u http://127.0.0.1:2110/ -f 246.png                           
+$ goup -u http://127.0.0.1:2110/ -f 246.png
 2022/01/20 17:44:21 Upload 4739FE47D18ADF7F started
-92.41 MiB / 92.41 MiB [-----------------------------------------------------------------------------------------------------------------------------------------------------] 100.00% 121.54 MiB p/s
+92.41 MiB / 92.41 MiB [---------------------------------------] 100.00% 121.54 MiB p/s
 2022/01/20 17:44:21 Upload 4739FE47D18ADF7F completed
 $ diff -s /Users/bingoobjca/Downloads/goup/.goup-files/246.png 246.png
 Files /Users/bingoobjca/Downloads/goup/.goup-files/246.png and 246.png are identical
@@ -93,7 +93,7 @@ As you can see, even if you terminate the client uploading, you can resume uploa
 ```sh
 $ goup -u http://127.0.0.1:2110/246.png
 2022/01/21 13:29:43 download started: .goup-files/246.png
-92.41 MiB / 92.41 MiB [---------------------------------------------------------------------] 100.00% 97.56 MiB p/s
+92.41 MiB / 92.41 MiB [---------------------------------------] 100.00% 97.56 MiB p/s
 2022/01/21 13:29:44 download complete: .goup-files/246.png
 ```
 
@@ -108,6 +108,6 @@ download:
 
 1. Start the server: `goup`
 2. Download
-    1. by [gurl](https://github.com/bingoohuang/gurl): `gurl :2110/246.png`
-    2. by curl: `curl -LO 127.0.0.1:2110/246.png`
-    3. by goup disable chunk: `goup -u :2110/246.png -c0`
+   1. by [gurl](https://github.com/bingoohuang/gurl): `gurl :2110/246.png`
+   2. by curl: `curl -LO 127.0.0.1:2110/246.png`
+   3. by goup disable chunk: `goup -u :2110/246.png -c0`
