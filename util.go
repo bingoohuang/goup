@@ -434,6 +434,7 @@ func Rewind(reader io.Reader) (err error) {
 //  --$boundary--\r\n
 // https://stackoverflow.com/questions/39761910/how-can-you-upload-files-as-a-stream-in-go/39781706
 // https://blog.depa.do/post/bufferless-multipart-post-in-go
+// https://github.com/technoweenie/multipartstreamer
 func PrepareMultipartPayload(fields map[string]interface{}) *MultipartPayload {
 	var buf [8]byte
 	if _, err := io.ReadFull(rand.Reader, buf[:]); err != nil {
