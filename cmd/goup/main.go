@@ -104,13 +104,13 @@ func main() {
 }
 
 func (a *Arg) processCode() {
-	if a.Code.Exists {
+	if a.Code.Exists && a.Code.Val == "" {
 		pwd, err := codec.ReadPassword(os.Stdin)
 		if err != nil {
 			log.Printf("failed to read password: %v", err)
 		}
 		_ = a.Code.Set(string(pwd))
-	} else if a.Code.String() == "" && a.ServerUrl == "" {
+	} else if a.Code.Val == "" && a.ServerUrl == "" {
 		_ = a.Code.Set(ksuid.New().String())
 		log.Printf("password is generate: %s", a.Code.String())
 	}
