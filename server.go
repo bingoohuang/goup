@@ -4,7 +4,6 @@ import (
 	"compress/gzip"
 	"context"
 	_ "embed" // embed
-	"encoding/base64"
 	"fmt"
 	"io"
 	"io/fs"
@@ -16,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/bingoohuang/gg/pkg/codec/b64"
 
 	"github.com/bingoohuang/gg/pkg/iox"
 
@@ -61,7 +62,7 @@ func ServerHandle(code string, cipher string, chunkSize, limitRate uint64) http.
 	f := func(w http.ResponseWriter, r *http.Request) error {
 		h := ParseHeader(r.Header.Get("Content-Gulp"))
 		if chunkSize > 0 {
-			r.Body = http.MaxBytesReader(w, r.Body, int64(chunkSize))
+			r.Body = http.MaxBytesReader(w, r.Body, int64(chunkSize)+1024*1024) // with extra 1 MiB, for padding compatible like encryption
 		}
 		if limitRate > 0 {
 			limit := shapeio.WithRateLimit(float64(limitRate))
@@ -103,7 +104,7 @@ func ServerHandle(code string, cipher string, chunkSize, limitRate uint64) http.
 		start := time.Now()
 
 		if err := f(w1, r); err != nil {
-			log.Printf("error occurred: %v", err)
+			log.Printf("E! failed: %v", err)
 			http.Error(w1, err.Error(), http.StatusInternalServerError)
 		}
 		log.Printf("%s %s %s [%d] %d %s %s (%s)",
@@ -155,7 +156,7 @@ func getSessionKey(sessionID string) []byte {
 }
 
 func servePake(w http.ResponseWriter, sessionID, code, contentCurve string) error {
-	a, err := base64.RawURLEncoding.DecodeString(contentCurve)
+	a, err := b64.DecodeString(contentCurve)
 	if err != nil {
 		return fmt.Errorf("base64 decode error: %w", err)
 	}
@@ -165,7 +166,7 @@ func servePake(w http.ResponseWriter, sessionID, code, contentCurve string) erro
 		return fmt.Errorf("init curve error: %w", err)
 	}
 
-	if err := b.Update(a); err != nil {
+	if err := b.Update([]byte(a)); err != nil {
 		return fmt.Errorf("update b error: %w", err)
 	}
 
@@ -176,7 +177,7 @@ func servePake(w http.ResponseWriter, sessionID, code, contentCurve string) erro
 	}
 
 	setSessionKey(sessionID, bk)
-	w.Header().Set("Content-Gulp", "Curve="+base64.RawURLEncoding.EncodeToString(bb))
+	w.Header().Set("Content-Gulp", "Curve="+b64.EncodeBytes2String(bb, b64.Raw, b64.URL))
 	return nil
 }
 
@@ -218,7 +219,7 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, co
 	filename := filepath.Base(fullPath)
 	if sessionID == "" {
 		if err := serveMultipartDownload(w, r, fullPath, filename); err != nil {
-			log.Printf("serveMultipartDownload error: %v", err)
+			log.Printf("E! serveMultipartDownload failed: %v", err)
 		}
 		return 0
 	}
@@ -235,7 +236,7 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, co
 
 	cr, err := parseContentRange(contentRange)
 	if err != nil {
-		log.Printf("parse contentRange %s error: %v", contentRange, err)
+		log.Printf("E! parse contentRange %s failed: %v", contentRange, err)
 		return http.StatusInternalServerError
 	}
 
@@ -248,7 +249,7 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, co
 
 	chunkReader, err := CreateChunkReader(fullPath, cr.From, cr.To, 0)
 	if err != nil {
-		log.Printf("CreateChunkReader %s chunk: %v", fullPath, err)
+		log.Printf("E! CreateChunkReader %s failed: %v", fullPath, err)
 		return http.StatusInternalServerError
 	}
 	defer Close(chunkReader)
@@ -256,18 +257,18 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, co
 	salt := codec.GenSalt(8)
 	key, _, err := codec.Scrypt(getSessionKey(sessionID), salt)
 	if err != nil {
-		log.Printf("new key error: %v", err)
+		log.Printf("E! new key failed: %v", err)
 		return http.StatusInternalServerError
 	}
 
 	w.Header().Set(ContentType, "application/octet-stream")
 	w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
-	w.Header().Set("Content-Gulp", "Rang="+contentRange+"; Salt="+base64.RawURLEncoding.EncodeToString(salt))
+	w.Header().Set("Content-Gulp", "Rang="+contentRange+"; Salt="+b64.EncodeBytes2String(salt, b64.Raw, b64.URL))
 
 	_, cipherSuites := parseCipherSuites(cipher)
 	cfg := sio.Config{Key: key, CipherSuites: cipherSuites}
 	if n, err := sio.Encrypt(w, chunkReader, cfg); err != nil {
-		log.Printf("encrypt %s bytes: %d, error: %v", fullPath, n, err)
+		log.Printf("E! encrypt %s bytes: %d, failed: %v", fullPath, n, err)
 		return http.StatusInternalServerError
 	}
 
@@ -294,7 +295,7 @@ func serveMultipartDownload(w http.ResponseWriter, r *http.Request, fullPath, fi
 	w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 
 	n, err := io.Copy(dst, chunkReader)
-	log.Printf("send file %s bytes: %d, error: %v", fullPath, n, err)
+	log.Printf("E! send file %s bytes: %d, failed: %v", fullPath, n, err)
 	return nil
 }
 
@@ -312,6 +313,19 @@ func serveBodyAsFile(src io.Reader, contentFilename string) error {
 
 	log.Printf("file pushed %s", fullPath)
 	return nil
+}
+
+type countReadCloser struct {
+	n          int
+	ReadCloser io.ReadCloser
+}
+
+func (c *countReadCloser) Close() error { return c.ReadCloser.Close() }
+
+func (c *countReadCloser) Read(p []byte) (n int, err error) {
+	n, err = c.ReadCloser.Read(p)
+	c.n += n
+	return
 }
 
 func serveUpload(w http.ResponseWriter, r *http.Request, contentRange, sessionID, cipher, contentChecksum, headerSalt string) error {
@@ -337,11 +351,11 @@ func serveUpload(w http.ResponseWriter, r *http.Request, contentRange, sessionID
 		return nil
 	}
 
-	salt, err := base64.RawURLEncoding.DecodeString(headerSalt)
+	salt, err := b64.DecodeString(headerSalt)
 	if err != nil {
 		return err
 	}
-	key, _, err := codec.Scrypt(getSessionKey(sessionID), salt)
+	key, _, err := codec.Scrypt(getSessionKey(sessionID), []byte(salt))
 	if err != nil {
 		return err
 	}
@@ -353,15 +367,18 @@ func serveUpload(w http.ResponseWriter, r *http.Request, contentRange, sessionID
 	defer Close(f)
 
 	_, cipherSuites := parseCipherSuites(cipher)
-	cfg := sio.Config{Key: key, CipherSuites: cipherSuites}
-	if n, err := sio.Decrypt(f, r.Body, cfg); err != nil {
+
+	body := &countReadCloser{ReadCloser: r.Body}
+	n, err := sio.Decrypt(f, body, sio.Config{Key: key, CipherSuites: cipherSuites})
+	if err != nil {
 		return fmt.Errorf("decrypt %s bytes: %d, error: %w", fullPath, n, err)
 	}
 	if _, err := w.Write([]byte(contentRange)); err != nil {
 		return fmt.Errorf("write file %s error: %w", fullPath, err)
 	}
 
-	log.Printf("recv file %s with session %s, range %s", filename, sessionID, contentRange)
+	log.Printf("recv file %s with session %s, range %s, bytes: %d, original bytes: %d",
+		filename, sessionID, contentRange, n, body.n)
 	return nil
 }
 

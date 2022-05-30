@@ -19,7 +19,7 @@ import (
 func GenSalt(n int) []byte {
 	salt := make([]byte, n)
 	if _, err := rand.Read(salt); err != nil {
-		log.Printf("can't generate random numbers: %v", err)
+		log.Printf("E! generate random numbers failed: %v", err)
 	}
 	return salt
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/vbauerster/mpb/v7/decor"
 
+	ggcodec "github.com/bingoohuang/gg/pkg/codec"
 	"github.com/bingoohuang/gg/pkg/fla9"
 
 	"github.com/bingoohuang/goup/codec"
@@ -62,8 +63,8 @@ func (a Arg) VersionInfo() string { return v.Version() }
 func main() {
 	c := &Arg{}
 	flagparse.Parse(c)
-
 	c.processCode()
+	log.Printf("Args: %s", ggcodec.Json(c))
 
 	if c.ServerUrl == "" {
 		if c.BearerToken == "auto" {
@@ -77,7 +78,7 @@ func main() {
 		http.HandleFunc("/", goup.Bearer(c.BearerToken, goup.ServerHandle(c.Code.String(), c.Cipher, c.ChunkSize, c.LimitRate)))
 		log.Printf("Listening on %d", c.Port)
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", c.Port), nil); err != nil {
-			log.Printf("listen: %v", err)
+			log.Printf("E! listen failed: %v", err)
 		}
 		return
 	}
@@ -107,7 +108,7 @@ func (a *Arg) processCode() {
 	if a.Code.Exists && a.Code.Val == "" {
 		pwd, err := codec.ReadPassword(os.Stdin)
 		if err != nil {
-			log.Printf("failed to read password: %v", err)
+			log.Printf("E! read password failed: %v", err)
 		}
 		_ = a.Code.Set(string(pwd))
 	} else if a.Code.Val == "" && a.ServerUrl == "" {
@@ -119,6 +120,7 @@ func (a *Arg) processCode() {
 type mpbProgress struct {
 	bar   *mpb.Bar
 	start time.Time
+	total uint64
 }
 
 func newMpbProgress() *mpbProgress {
@@ -126,6 +128,7 @@ func newMpbProgress() *mpbProgress {
 }
 
 func (p *mpbProgress) Start(value uint64) {
+	p.total = value
 	mp := mpb.New(
 		mpb.WithWidth(60),
 		mpb.WithRefreshRate(180*time.Millisecond),
@@ -147,13 +150,14 @@ func (p *mpbProgress) Start(value uint64) {
 
 func (p *mpbProgress) Add(n uint64) {
 	if n > 0 {
+		p.total -= n
 		p.bar.IncrBy(int(n))
 		// we need to call DecoratorEwmaUpdate to fulfill ewma decorator's contract
 		p.bar.DecoratorEwmaUpdate(time.Since(p.start))
 		p.start = time.Now()
 	}
 }
-func (p mpbProgress) Finish() {}
+func (p *mpbProgress) Finish() {}
 
 type pbProgress struct {
 	bar *pb.ProgressBar

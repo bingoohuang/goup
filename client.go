@@ -1,7 +1,6 @@
 package goup
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/bingoohuang/gg/pkg/codec/b64"
 
 	"github.com/bingoohuang/goup/shapeio"
 
@@ -181,7 +182,7 @@ func (c *Client) multipartDownload() error {
 	c.Progress.Start(c.TotalSize)
 	defer c.Progress.Finish()
 	if _, err := writeChunk(c.FullPath, c.Progress, q.Body, nil); err != nil {
-		log.Printf("write chunk error: %v", err)
+		log.Printf("E! write chunk failed: %v", err)
 	}
 
 	return nil
@@ -221,7 +222,7 @@ func (c *Client) initDownload() error {
 	c.Progress.Start(c.TotalSize)
 	defer c.Progress.Finish()
 	if err := c.do("download", c.downloadChunk); err != nil {
-		log.Printf("download error: %v", err)
+		log.Printf("E! download failed: %v", err)
 	}
 
 	return nil
@@ -247,7 +248,7 @@ func (c *Client) initUpload() error {
 		}
 		return c.do("upload", c.uploadChunk)
 	}(); err != nil {
-		log.Printf("upload error: %v", err)
+		log.Printf("E! upload failed: %v", err)
 		return err
 	}
 
@@ -302,7 +303,7 @@ func (c *Client) downloadChunk(i uint64) error {
 	}
 
 	h := ParseHeader(q.Header.Get("Content-Gulp"))
-	salt, err := base64.RawURLEncoding.DecodeString(h.Salt)
+	salt, err := b64.DecodeString(h.Salt)
 	if err != nil {
 		return err
 	}
@@ -315,7 +316,7 @@ func (c *Client) downloadChunk(i uint64) error {
 		q.Body = shapeio.NewReader(q.Body, shapeio.WithRateLimit(float64(c.LimitRate)))
 	}
 
-	key, _, err := codec.Scrypt(c.sessionKey, salt)
+	key, _, err := codec.Scrypt(c.sessionKey, []byte(salt))
 	if err != nil {
 		return err
 	}
@@ -327,7 +328,7 @@ func (c *Client) downloadChunk(i uint64) error {
 		_, cipherSuites := parseCipherSuites(c.Cipher)
 		cfg := sio.Config{Key: key, CipherSuites: cipherSuites}
 		if n, err := sio.Decrypt(pw, q.Body, cfg); err != nil {
-			log.Printf("decrypt bytes: %d error: %v", n, err)
+			log.Printf("E! decrypt bytes: %d failed: %v", n, err)
 		}
 	}()
 
@@ -349,7 +350,7 @@ func (c *Client) goJobs(operation string, job func(i uint64) error) {
 				retryJob(func() error {
 					err := job(idx)
 					if err != nil {
-						log.Printf("%s chunk %d: %v", operation, idx, err)
+						log.Printf("E! %s chunk %d failed: %v", operation, idx, err)
 					}
 					return err
 				})
@@ -452,8 +453,7 @@ func (c *Client) setupSessionKey() error {
 		return err
 	}
 	r.Header.Set(Authorization, c.Bearer)
-	r.Header.Set("Content-Gulp", "Session="+c.ID+
-		"; Curve="+base64.RawURLEncoding.EncodeToString(a.Bytes()))
+	r.Header.Set("Content-Gulp", "Session="+c.ID+"; Curve="+b64.EncodeBytes2String(a.Bytes(), b64.Raw, b64.URL))
 	q, err := c.Client.Do(r)
 	if err != nil {
 		return err
@@ -463,10 +463,10 @@ func (c *Client) setupSessionKey() error {
 	}
 
 	h := ParseHeader(q.Header.Get("Content-Gulp"))
-	b, err := base64.RawURLEncoding.DecodeString(h.Curve)
+	b, err := b64.DecodeString(h.Curve)
 	if err != nil {
 		return fmt.Errorf("base64 decode error: %w", err)
-	} else if err := a.Update(b); err != nil {
+	} else if err := a.Update([]byte(b)); err != nil {
 		return fmt.Errorf("update b error: %w", err)
 	}
 
@@ -504,9 +504,10 @@ func (c *Client) chunkTransfer(chunkBody io.Reader, contentRange string, err err
 		defer Close(pw)
 
 		_, cipherSuites := parseCipherSuites(c.Cipher)
-		cfg := sio.Config{Key: key, CipherSuites: cipherSuites}
-		if n, err := sio.Encrypt(pw, chunkBody, cfg); err != nil {
-			log.Printf("encrypt data bytes: %d, error: %v", n, err)
+		if n, err := sio.Encrypt(pw, chunkBody, sio.Config{Key: key, CipherSuites: cipherSuites}); err != nil {
+			log.Printf("E! encrypt data bytes: %d, failed: %v", n, err)
+		} else {
+			log.Printf("encrypt data bytes: %d", n)
 		}
 	}()
 
@@ -520,7 +521,7 @@ func (c *Client) chunkTransfer(chunkBody io.Reader, contentRange string, err err
 	r.Header.Set(ContentDisposition, c.contentDisposition)
 	r.Header.Set("Content-Gulp", "Session="+c.ID+
 		"; Range="+contentRange+
-		"; Salt="+base64.RawURLEncoding.EncodeToString(salt))
+		"; Salt="+b64.EncodeBytes2String(salt, b64.Raw, b64.URL))
 	q, err := c.Client.Do(r)
 	if err != nil {
 		return "", err
@@ -544,9 +545,7 @@ func (c *Client) chunkUploadChecksum(chunkChecksum, contentRange string) (bool, 
 
 	r.Header.Set(Authorization, c.Bearer)
 	r.Header.Set(ContentDisposition, c.contentDisposition)
-	r.Header.Set("Content-Gulp", "Session="+c.ID+
-		"; Range="+contentRange+
-		"; Checksum="+chunkChecksum)
+	r.Header.Set("Content-Gulp", "Session="+c.ID+"; Range="+contentRange+"; Checksum="+chunkChecksum)
 	q, err := c.Client.Do(r)
 	if err != nil {
 		return false, err

@@ -2,7 +2,6 @@ package goup
 
 import (
 	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +13,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/bingoohuang/gg/pkg/codec/b64"
 
 	"github.com/bingoohuang/goup/shapeio"
 
@@ -332,9 +333,9 @@ func parseContentRange(contentRange string) (c *chunkRange, err error) {
 func checksumReader(r io.Reader) string {
 	h := xxhash.New()
 	if _, err := io.Copy(h, r); err != nil {
-		log.Printf("copy error: %v", err)
+		log.Printf("copy failed: %v", err)
 	}
-	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+	return b64.EncodeBytes2String(h.Sum(nil), b64.Raw, b64.URL)
 }
 
 func fileNotExists(filePath string) bool {
@@ -352,7 +353,7 @@ func ensureDir(dirPath string) error {
 // Close closes the io.Closer and log print if error occurs.
 func Close(c io.Closer) {
 	if err := c.Close(); err != nil {
-		log.Printf("close error: %v", err)
+		log.Printf("close failed: %v", err)
 	}
 }
 

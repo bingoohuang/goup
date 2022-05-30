@@ -4,8 +4,9 @@ import (
 	"crypto/rand"
 	"crypto/sha512"
 	"crypto/subtle"
-	"encoding/base64"
 	"net/http"
+
+	"github.com/bingoohuang/gg/pkg/codec/b64"
 )
 
 const bearerPrefix = "Bearer "
@@ -43,5 +44,5 @@ func bearerUnauthorized(res http.ResponseWriter) {
 func BearerTokenGenerate() string {
 	b := make([]byte, 15)
 	_, _ = rand.Read(b)
-	return base64.RawURLEncoding.EncodeToString(b)
+	return b64.EncodeBytes2String(b, b64.URL, b64.Raw)
 }
