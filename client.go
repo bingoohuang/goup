@@ -506,10 +506,9 @@ func (c *Client) chunkTransfer(chunkBody io.Reader, contentRange string, err err
 		_, cipherSuites := parseCipherSuites(c.Cipher)
 		if n, err := sio.Encrypt(pw, chunkBody, sio.Config{Key: key, CipherSuites: cipherSuites}); err != nil {
 			log.Printf("E! encrypt data bytes: %d, failed: %v", n, err)
-		} else {
-			log.Printf("encrypt data bytes: %d", n)
 		}
 	}()
+	defer Close(pr)
 
 	r, err := http.NewRequest(http.MethodPost, c.url, &PbReader{Reader: pr, Adder: c.Progress})
 	if err != nil {

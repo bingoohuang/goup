@@ -42,7 +42,7 @@ type UploadResult struct {
 }
 
 // NetHTTPUpload upload
-func NetHTTPUpload(w http.ResponseWriter, r *http.Request, rootDir string, maxBytes uint64) error {
+func NetHTTPUpload(w http.ResponseWriter, r *http.Request, rootDir string, limitSize uint64) error {
 	start := time.Now()
 	maxMemory := 16 /*16 MiB */ << 20
 	if err := r.ParseMultipartForm(int64(maxMemory)); err != nil {
@@ -73,7 +73,7 @@ func NetHTTPUpload(w http.ResponseWriter, r *http.Request, rootDir string, maxBy
 		Files:         files,
 		FileSizes:     fileSizes,
 		MaxTempMemory: man.Bytes(uint64(maxMemory)),
-		LimitSize:     man.Bytes(maxBytes),
+		LimitSize:     man.Bytes(limitSize),
 		TotalSize:     man.Bytes(uint64(totalSize)),
 		Cost:          end.Sub(start).String(),
 	})

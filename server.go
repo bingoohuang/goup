@@ -65,13 +65,13 @@ func ServerHandle(code string, cipher string, chunkSize, limitRate uint64) http.
 			r.Body = http.MaxBytesReader(w, r.Body, int64(chunkSize)+1024*1024) // with extra 1 MiB, for padding compatible like encryption
 		}
 		if limitRate > 0 {
-			limit := shapeio.WithRateLimit(float64(limitRate))
-			r.Body = shapeio.NewReader(r.Body, limit)
-			w = &limitResponseWriter{
-				ResponseWriter: w,
-				RateLimiter:    shapeio.NewRateLimiter(limit),
-			}
+			l := shapeio.WithRateLimit(float64(limitRate))
+			r.Body = shapeio.NewReader(r.Body, l)
+			w = &limitResponseWriter{ResponseWriter: w, RateLimiter: shapeio.NewRateLimiter(l)}
 		}
+		defer func() {
+			iox.DiscardClose(r.Body)
+		}()
 
 		switch {
 		case h.Filename != "" && r.Method == http.MethodPost:
@@ -107,8 +107,7 @@ func ServerHandle(code string, cipher string, chunkSize, limitRate uint64) http.
 			log.Printf("E! failed: %v", err)
 			http.Error(w1, err.Error(), http.StatusInternalServerError)
 		}
-		log.Printf("%s %s %s [%d] %d %s %s (%s)",
-			r.RemoteAddr, r.Method, r.URL.Path, w1.StatusCode,
+		log.Printf("%s %s %s [%d] %d %s %s (%s)", r.RemoteAddr, r.Method, r.URL.Path, w1.StatusCode,
 			w1.Count, r.Header["Referer"], r.Header["User-Agent"], time.Since(start))
 	}
 }

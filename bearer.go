@@ -19,11 +19,10 @@ func Bearer(token string, handle http.HandlerFunc) http.HandlerFunc {
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get(Authorization)
-		if SecureCompare(auth, bearerPrefix+token) {
+		if a := r.Header.Get(Authorization); SecureCompare(a, bearerPrefix+token) {
 			handle(w, r)
 		} else {
-			bearerUnauthorized(w)
+			http.Error(w, "Not Authorized", http.StatusUnauthorized)
 		}
 	}
 }
@@ -34,10 +33,6 @@ func SecureCompare(given string, actual string) bool {
 	actualSha := sha512.Sum512([]byte(actual))
 
 	return subtle.ConstantTimeCompare(givenSha[:], actualSha[:]) == 1
-}
-
-func bearerUnauthorized(res http.ResponseWriter) {
-	http.Error(res, "Not Authorized", http.StatusUnauthorized)
 }
 
 // BearerTokenGenerate generates a random bearer token.
