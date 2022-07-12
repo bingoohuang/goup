@@ -13,16 +13,16 @@ program restarting either locally or to the server.
 3. resume-able. chunk's hash will be checked before transfer.
 4. security data by AES-GCM based on [PAKE](https://github.com/schollz/pake).
 
-| API | Method | Req Content-Gulp         | Rsp Content-Gulp | Other Headers                                          | Function                                                         |
-| --: | :----- | :----------------------- | ---------------- | :----------------------------------------------------- | :--------------------------------------------------------------- |
-|  1. | POST   | Filename                 |                  |                                                        | 明文上传（文件作为 Body)                                         |
-|  2. | POST   | Session, Curve           | Curve,           |                                                        | PAKE 生成会话秘钥                                                |
-|  3. | GET /  | Session, Range, Checksum |                  | Req: Content-Disposition                               | 校验分块 checksum，返回 304 或 其它                              |
-|  4. | POST / | Session, Range, Salt     |                  | Req: Content-Disposition                               | 分块加密上传（加密分块作为 Body)                                 |
+| API | Method | Req Content-Gulp         | Rsp Content-Gulp | Other Headers                                          | Function                                                       |
+|----:|:-------|:-------------------------|------------------|:-------------------------------------------------------|:---------------------------------------------------------------|
+|  1. | POST   | Filename                 |                  |                                                        | 明文上传（文件作为 Body)                                        |
+|  2. | POST   | Session, Curve           | Curve,           |                                                        | PAKE 生成会话秘钥                                              |
+|  3. | GET /  | Session, Range, Checksum |                  | Req: Content-Disposition                               | 校验分块 checksum，返回 304 或 其它                             |
+|  4. | POST / | Session, Range, Salt     |                  | Req: Content-Disposition                               | 分块加密上传（加密分块作为 Body)                                |
 |  5. | GET /  |                          |                  |                                                        | HTML JS 上传页面 / 服务端文件列表（Accept: application/json 时） |
-|  6. | GET /  | Session, Range, Checksum | Range, Salt      | Rsp: Content-Type , Content-Disposition                | 分块加密下载                                                     |
-|  7. | GET /  |                          | Salt             | Rsp: Content-Type, Content-Length, Content-Disposition | 明文下载                                                         |
-|  8. | POST   |                          |                  |                                                        | 明文上传（multipart-form)                                        |
+|  6. | GET /  | Session, Range, Checksum | Range, Salt      | Rsp: Content-Type , Content-Disposition                | 分块加密下载                                                   |
+|  7. | GET /  |                          | Salt             | Rsp: Content-Type, Content-Length, Content-Disposition | 明文下载                                                       |
+|  8. | POST   |                          |                  |                                                        | 明文上传（multipart-form)                                       |
 
 ![](_doc/img.png)
 
@@ -111,3 +111,10 @@ download:
    1. by [gurl](https://github.com/bingoohuang/gurl): `gurl :2110/246.png`
    2. by curl: `curl -LO 127.0.0.1:2110/246.png`
    3. by goup disable chunk: `goup -u :2110/246.png -c0`
+
+## Resources
+
+1. [SRP](https://github.com/posterity/srp) Go implementation of the Secure Remote Password (SRP) protocol.
+   > SRP is an authentication method that allows the use of user names and passwords over unencrypted channels without revealing the password to an eavesdropper.
+   > SRP also supplies a shared secret at the end of the authentication sequence that can be used to generate encryption keys.
+2. [Encrypted-Content-Encoding HTTP](https://github.com/posterity/ece) Go implementation of Encrypted-Content-Encoding for HTTP (RFC 8188).
