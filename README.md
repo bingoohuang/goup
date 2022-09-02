@@ -12,17 +12,18 @@ program restarting either locally or to the server.
 2. uploading/downloading by HTTP.
 3. resume-able. chunk's hash will be checked before transfer.
 4. security data by AES-GCM based on [PAKE](https://github.com/schollz/pake).
+5. support download short path like `goup -path /xx=/xx.zip`, then the client can use `http://127.0.0.1:2001/xx` to download the xx.zip file.
 
-| API | Method | Req Content-Gulp         | Rsp Content-Gulp | Other Headers                                          | Function                                                       |
-|----:|:-------|:-------------------------|------------------|:-------------------------------------------------------|:---------------------------------------------------------------|
-|  1. | POST   | Filename                 |                  |                                                        | 明文上传（文件作为 Body)                                        |
-|  2. | POST   | Session, Curve           | Curve,           |                                                        | PAKE 生成会话秘钥                                              |
-|  3. | GET /  | Session, Range, Checksum |                  | Req: Content-Disposition                               | 校验分块 checksum，返回 304 或 其它                             |
+| API | Method | Req Content-Gulp         | Rsp Content-Gulp | Other Headers                                          | Function                                           |
+|----:|:-------|:-------------------------|------------------|:-------------------------------------------------------|:---------------------------------------------------|
+|  1. | POST   | Filename                 |                  |                                                        | 明文上传（文件作为 Body)                                    |
+|  2. | POST   | Session, Curve           | Curve,           |                                                        | PAKE 生成会话秘钥                                        |
+|  3. | GET /  | Session, Range, Checksum |                  | Req: Content-Disposition                               | 校验分块 checksum，返回 304 或 其它                          |
 |  4. | POST / | Session, Range, Salt     |                  | Req: Content-Disposition                               | 分块加密上传（加密分块作为 Body)                                |
 |  5. | GET /  |                          |                  |                                                        | HTML JS 上传页面 / 服务端文件列表（Accept: application/json 时） |
-|  6. | GET /  | Session, Range, Checksum | Range, Salt      | Rsp: Content-Type , Content-Disposition                | 分块加密下载                                                   |
-|  7. | GET /  |                          | Salt             | Rsp: Content-Type, Content-Length, Content-Disposition | 明文下载                                                       |
-|  8. | POST   |                          |                  |                                                        | 明文上传（multipart-form)                                       |
+|  6. | GET /  | Session, Range, Checksum | Range, Salt      | Rsp: Content-Type , Content-Disposition                | 分块加密下载                                             |
+|  7. | GET /  |                          | Salt             | Rsp: Content-Type, Content-Length, Content-Disposition | 明文下载                                               |
+|  8. | POST   |                          |                  |                                                        | 明文上传（multipart-form)                               |
 
 ![](_doc/img.png)
 

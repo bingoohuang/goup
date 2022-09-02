@@ -33,6 +33,7 @@ import (
 )
 
 // for Drag and Drop File Uploading, https://css-tricks.com/drag-and-drop-file-uploading/
+//
 //go:embed index.html
 var indexPage []byte
 
@@ -58,7 +59,7 @@ func (s *limitResponseWriter) Write(p []byte) (int, error) {
 }
 
 // ServerHandle is main request/response handler for HTTP server.
-func ServerHandle(code string, cipher string, chunkSize, limitRate uint64) http.HandlerFunc {
+func ServerHandle(code, cipher string, chunkSize, limitRate uint64, paths []string) http.HandlerFunc {
 	f := func(w http.ResponseWriter, r *http.Request) error {
 		h := ParseHeader(r.Header.Get("Content-Gulp"))
 		if chunkSize > 0 {
@@ -87,8 +88,8 @@ func ServerHandle(code string, cipher string, chunkSize, limitRate uint64) http.
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_, err := w.Write(indexPage)
 			return err
-		case r.URL.Path != "/" && r.Method == http.MethodGet: // may be downloads
-			if status := serveDownload(w, r, h.Session, cipher, h.Range, h.Checksum, chunkSize); status > 0 {
+		case r.URL.Path != "/" && (r.Method == http.MethodGet || r.Method == http.MethodHead): // may be downloads
+			if status := serveDownload(w, r, h.Session, cipher, h.Range, h.Checksum, chunkSize, paths); status > 0 {
 				w.WriteHeader(status)
 			}
 		case r.Method == http.MethodPost:
@@ -208,14 +209,30 @@ func servList(w http.ResponseWriter) error {
 	return jsoni.NewEncoder(w).Encode(context.Background(), entries)
 }
 
-func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, contentRange, checksum string, chunkSize uint64) int {
-	fullPath := filepath.Join(RootDir, "."+r.URL.Path)
+func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, contentRange, checksum string, chunkSize uint64, paths []string) int {
+	urlPath := r.URL.Path
+	for _, p := range paths {
+		if strings.HasPrefix(urlPath, urlPath) {
+			p = p[len(urlPath):]
+			switch p[0] {
+			case ':', '=':
+				urlPath = p[1:]
+			}
+		}
+	}
+	fullPath := filepath.Join(RootDir, "."+urlPath)
 	stat, err := os.Stat(fullPath)
 	if os.IsNotExist(err) {
 		return http.StatusNotFound
 	}
 
 	filename := filepath.Base(fullPath)
+
+	if r.Method == http.MethodHead {
+		w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+		return 0
+	}
+
 	if sessionID == "" {
 		if err := serveMultipartDownload(w, r, fullPath, filename); err != nil {
 			log.Printf("E! serveMultipartDownload failed: %v", err)
@@ -276,21 +293,29 @@ func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, co
 }
 
 func serveMultipartDownload(w http.ResponseWriter, r *http.Request, fullPath, filename string) error {
-	chunkReader, err := CreateChunkReader(fullPath, 0, 0, 0)
+	partFrom, partTo := uint64(0), uint64(0)
+	if v := r.Header.Get("Range"); v != "" {
+		if cr, _ := parseRange(v); cr != nil {
+			partFrom = cr.startByte
+			partTo = cr.endByte
+		}
+	}
+	chunkReader, err := CreateChunkReader(fullPath, partFrom, partTo, 0)
 	if err != nil {
 		return err
 	}
 	defer Close(chunkReader)
 
 	var dst io.Writer = w
-	if gzipAllowed := strings.Contains(r.Header.Get("Accept-Encoding"), "gzip"); gzipAllowed {
+	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") && !ss.HasSuffix(filename, ".gz", ".zip") {
 		w.Header().Set("Content-Encoding", "gzip")
 		gz := gzip.NewWriter(dst)
 		defer iox.Close(gz)
 		dst = gz
+	} else {
+		w.Header().Set(ContentLength, fmt.Sprintf("%d", chunkReader.(PayloadFileReader).FileSize()))
 	}
 	w.Header().Set(ContentType, "application/octet-stream")
-	w.Header().Set(ContentLength, fmt.Sprintf("%d", chunkReader.(PayloadFileReader).FileSize()))
 	w.Header().Set(ContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 
 	n, err := io.Copy(dst, chunkReader)

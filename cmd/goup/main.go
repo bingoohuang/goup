@@ -34,6 +34,7 @@ type Arg struct {
 	FilePath    string          `flag:",f"`
 	Rename      string          `flag:",r"`
 	BearerToken string          `flag:",b"`
+	Paths       []string        `flag:"path"`
 }
 
 // Usage is optional for customized show.
@@ -51,6 +52,7 @@ Usage of goup:
   -L    string Limit rate /s, like 10K for limit 10K/s
   -C    string Cipher AES256: AES-256 GCM, C20P1305: ChaCha20 Poly1305
   -v    bool   Show version
+  -path /short=/short.zip Short URLs
   -init bool   Create init ctl shell script`)
 }
 
@@ -72,7 +74,7 @@ func main() {
 		if err := goup.InitServer(); err != nil {
 			log.Fatalf("init goup server: %v", err)
 		}
-		http.HandleFunc("/", goup.Bearer(c.BearerToken, goup.ServerHandle(c.Code.String(), c.Cipher, c.ChunkSize, c.LimitRate)))
+		http.HandleFunc("/", goup.Bearer(c.BearerToken, goup.ServerHandle(c.Code.String(), c.Cipher, c.ChunkSize, c.LimitRate, c.Paths)))
 		log.Printf("Listening on %d", c.Port)
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", c.Port), nil); err != nil {
 			log.Printf("E! listen failed: %v", err)

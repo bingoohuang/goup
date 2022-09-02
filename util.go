@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -239,21 +240,27 @@ func CreateChunkReader(fullPath string, partFrom, partTo uint64, limitRate uint6
 		return nil, fmt.Errorf("open file %s error: %w", fullPath, err)
 	}
 
+	stat, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	size := stat.Size()
+
 	if partFrom > 0 {
 		if _, err := f.Seek(int64(partFrom), io.SeekStart); err != nil {
 			return nil, fmt.Errorf("seek file %s to %d error: %w", fullPath, partFrom, err)
 		}
 
-		reader := io.LimitReader(f, int64(partTo-partFrom))
-		return Wrap(reader, f), nil
+		if partTo > partFrom {
+			reader := io.LimitReader(f, int64(partTo-partFrom))
+			size -= int64(partFrom)
+			return Wrap(reader, f), nil
+		} else {
+			size = int64(partTo - partFrom)
+		}
 	}
 
-	stat, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-
-	pf := &PayloadFile{ReadCloser: f, Name: f.Name(), Size: stat.Size()}
+	pf := &PayloadFile{ReadCloser: f, Name: f.Name(), Size: size}
 
 	if limitRate > 0 {
 		pf.ReadCloser = shapeio.NewReader(pf.ReadCloser, shapeio.WithRateLimit(float64(limitRate)))
@@ -300,6 +307,44 @@ func newChunkRange(index, fileChunk, partSize, totalSize uint64) *chunkRange {
 
 func (c chunkRange) createContentRange() string {
 	return fmt.Sprintf("bytes %d-%d/%d", c.From, c.To, c.TotalSize)
+}
+
+var (
+	rangeRegexp = regexp.MustCompile(`bytes=([0-9]+)-([0-9]+)?`)
+)
+
+type Range struct {
+	startByte uint64
+	endByte   uint64
+}
+
+func parseRange(rangeHead string) (*Range, error) {
+	if rangeHead == "" {
+		return nil, errors.New("no Content-Range header found in HTTP response")
+	}
+
+	subs := rangeRegexp.FindStringSubmatch(rangeHead)
+	if len(subs) == 0 {
+		return nil, fmt.Errorf("parse Content-Range: %s", rangeHead)
+	}
+
+	startByte, err := strconv.ParseUint(subs[1], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parse Content-Range: %s", rangeHead)
+	}
+
+	var endByte uint64
+	if subs[2] != "" {
+		endByte, err = strconv.ParseUint(subs[2], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse Content-Range: %s", rangeHead)
+		}
+	}
+
+	return &Range{
+		startByte: startByte,
+		endByte:   endByte,
+	}, nil
 }
 
 func parseContentRange(contentRange string) (c *chunkRange, err error) {
@@ -419,20 +464,22 @@ func Rewind(reader io.Reader) (err error) {
 
 // PrepareMultipartPayload prepares the multipart playload of http request.
 // Multipart request has the following structure:
-//  POST /upload HTTP/1.1
-//  Other-Headers: ...
-//  Content-Type: multipart/form-data; boundary=$boundary
-//  \r\n
-//  --$boundary\r\n    👈 request body starts here
-//  Content-Disposition: form-data; name="field1"\r\n
-//  Content-Type: text/plain; charset=utf-8\r\n
-//  Content-Length: 4\r\n
-//  \r\n
-//  $content\r\n
-//  --$boundary\r\n
-//  Content-Disposition: form-data; name="field2"\r\n
-//  ...
-//  --$boundary--\r\n
+//
+//	POST /upload HTTP/1.1
+//	Other-Headers: ...
+//	Content-Type: multipart/form-data; boundary=$boundary
+//	\r\n
+//	--$boundary\r\n    👈 request body starts here
+//	Content-Disposition: form-data; name="field1"\r\n
+//	Content-Type: text/plain; charset=utf-8\r\n
+//	Content-Length: 4\r\n
+//	\r\n
+//	$content\r\n
+//	--$boundary\r\n
+//	Content-Disposition: form-data; name="field2"\r\n
+//	...
+//	--$boundary--\r\n
+//
 // https://stackoverflow.com/questions/39761910/how-can-you-upload-files-as-a-stream-in-go/39781706
 // https://blog.depa.do/post/bufferless-multipart-post-in-go
 // https://github.com/technoweenie/multipartstreamer
