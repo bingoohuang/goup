@@ -8,11 +8,10 @@ import (
 	"fmt"
 	"log"
 
-	"golang.org/x/crypto/scrypt"
-
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/pbkdf2"
+	"golang.org/x/crypto/scrypt"
 )
 
 // GenSalt generates a salt

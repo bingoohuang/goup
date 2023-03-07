@@ -13,7 +13,7 @@ require (
 	github.com/segmentio/ksuid v1.0.4
 	github.com/vthiery/retry v0.1.0
 	go.uber.org/multierr v1.6.0
-	golang.org/x/crypto v0.0.0-20220131195533-30dcbda58838
+	golang.org/x/crypto v0.7.0
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0
 )
 
@@ -29,7 +29,7 @@ require (
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/tscholl2/siec v0.0.0-20210707234609-9bdfc483d499 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
-	golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a // indirect
-	golang.org/x/term v0.0.0-20220526004731-065cf7ba2467 // indirect
+	golang.org/x/sys v0.6.0 // indirect
+	golang.org/x/term v0.6.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220517211312-f3a8303e98df // indirect
 )

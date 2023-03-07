@@ -6,19 +6,15 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/k0kubun/go-ansi"
-	"github.com/schollz/progressbar/v3"
-
 	ggcodec "github.com/bingoohuang/gg/pkg/codec"
 	"github.com/bingoohuang/gg/pkg/fla9"
-
-	"github.com/bingoohuang/goup/codec"
-	"github.com/segmentio/ksuid"
-
 	"github.com/bingoohuang/gg/pkg/flagparse"
 	"github.com/bingoohuang/gg/pkg/v"
-
 	"github.com/bingoohuang/goup"
+	"github.com/bingoohuang/goup/codec"
+	"github.com/k0kubun/go-ansi"
+	"github.com/schollz/progressbar/v3"
+	"github.com/segmentio/ksuid"
 )
 
 type Arg struct {

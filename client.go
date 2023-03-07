@@ -13,17 +13,12 @@ import (
 	"sync"
 
 	"github.com/bingoohuang/gg/pkg/codec/b64"
-
-	"github.com/bingoohuang/goup/shapeio"
-
-	"github.com/bingoohuang/gg/pkg/ss"
-
-	"github.com/bingoohuang/goup/codec"
-	"github.com/minio/sio"
-
-	"github.com/schollz/pake/v3"
-
 	"github.com/bingoohuang/gg/pkg/rest"
+	"github.com/bingoohuang/gg/pkg/ss"
+	"github.com/bingoohuang/goup/codec"
+	"github.com/bingoohuang/goup/shapeio"
+	"github.com/minio/sio"
+	"github.com/schollz/pake/v3"
 )
 
 // Client structure

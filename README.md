@@ -12,7 +12,8 @@ program restarting either locally or to the server.
 2. uploading/downloading by HTTP.
 3. resume-able. chunk's hash will be checked before transfer.
 4. security data by AES-GCM based on [PAKE](https://github.com/schollz/pake).
-5. support download short path like `goup -path /xx=/xx.zip`, then the client can use `http://127.0.0.1:2001/xx` to download the xx.zip file.
+5. support download short path like `goup -path /xx=/xx.zip`, then the client can use `http://127.0.0.1:2001/xx` to
+   download the xx.zip file.
 
 | API | Method | Req Content-Gulp         | Rsp Content-Gulp | Other Headers                                          | Function                                           |
 |----:|:-------|:-------------------------|------------------|:-------------------------------------------------------|:---------------------------------------------------|
@@ -109,13 +110,16 @@ download:
 
 1. Start the server: `goup`
 2. Download
-   1. by [gurl](https://github.com/bingoohuang/gurl): `gurl :2110/246.png`
-   2. by curl: `curl -LO 127.0.0.1:2110/246.png`
-   3. by goup disable chunk: `goup -u :2110/246.png -c0`
+    1. by [gurl](https://github.com/bingoohuang/gurl): `gurl :2110/246.png`
+    2. by curl: `curl -LO 127.0.0.1:2110/246.png`
+    3. by goup disable chunk: `goup -u :2110/246.png -c0`
 
 ## Resources
 
 1. [SRP](https://github.com/posterity/srp) Go implementation of the Secure Remote Password (SRP) protocol.
-   > SRP is an authentication method that allows the use of user names and passwords over unencrypted channels without revealing the password to an eavesdropper.
-   > SRP also supplies a shared secret at the end of the authentication sequence that can be used to generate encryption keys.
-2. [Encrypted-Content-Encoding HTTP](https://github.com/posterity/ece) Go implementation of Encrypted-Content-Encoding for HTTP (RFC 8188).
+   > SRP is an authentication method that allows the use of user names and passwords over unencrypted channels without
+   revealing the password to an eavesdropper.
+   > SRP also supplies a shared secret at the end of the authentication sequence that can be used to generate encryption
+   keys.
+2. [Encrypted-Content-Encoding HTTP](https://github.com/posterity/ece) Go implementation of Encrypted-Content-Encoding
+   for HTTP (RFC 8188).

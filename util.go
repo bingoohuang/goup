@@ -16,12 +16,9 @@ import (
 	"strings"
 
 	"github.com/bingoohuang/gg/pkg/codec/b64"
-
 	"github.com/bingoohuang/goup/shapeio"
-
-	"go.uber.org/multierr"
-
 	"github.com/cespare/xxhash/v2"
+	"go.uber.org/multierr"
 )
 
 // RootDir settings.
@@ -309,9 +306,7 @@ func (c chunkRange) createContentRange() string {
 	return fmt.Sprintf("bytes %d-%d/%d", c.From, c.To, c.TotalSize)
 }
 
-var (
-	rangeRegexp = regexp.MustCompile(`bytes=([0-9]+)-([0-9]+)?`)
-)
+var rangeRegexp = regexp.MustCompile(`bytes=([0-9]+)-([0-9]+)?`)
 
 type Range struct {
 	startByte uint64

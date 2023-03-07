@@ -17,19 +17,13 @@ import (
 	"time"
 
 	"github.com/bingoohuang/gg/pkg/codec/b64"
-
 	"github.com/bingoohuang/gg/pkg/iox"
-
-	"github.com/bingoohuang/goup/shapeio"
-
-	"github.com/bingoohuang/gg/pkg/ss"
-
-	"github.com/bingoohuang/goup/codec"
-	"github.com/minio/sio"
-
-	"github.com/schollz/pake/v3"
-
 	"github.com/bingoohuang/gg/pkg/jsoni"
+	"github.com/bingoohuang/gg/pkg/ss"
+	"github.com/bingoohuang/goup/codec"
+	"github.com/bingoohuang/goup/shapeio"
+	"github.com/minio/sio"
+	"github.com/schollz/pake/v3"
 )
 
 // for Drag and Drop File Uploading, https://css-tricks.com/drag-and-drop-file-uploading/
