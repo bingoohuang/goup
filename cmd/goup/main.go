@@ -10,6 +10,7 @@ import (
 	"github.com/bingoohuang/gg/pkg/fla9"
 	"github.com/bingoohuang/gg/pkg/flagparse"
 	"github.com/bingoohuang/gg/pkg/v"
+	"github.com/bingoohuang/golog"
 	"github.com/bingoohuang/goup"
 	"github.com/bingoohuang/goup/codec"
 	"github.com/k0kubun/go-ansi"
@@ -56,6 +57,8 @@ Usage of goup:
 func (a Arg) VersionInfo() string { return v.Version() }
 
 func main() {
+	golog.Setup()
+
 	c := &Arg{}
 	flagparse.Parse(c)
 	c.processCode()

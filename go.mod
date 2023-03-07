@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	github.com/bingoohuang/gg v0.0.0-20220531010437-ec095e3e9161
+	github.com/bingoohuang/golog v0.0.0-20230128053742-a8993f581e53
 	github.com/cespare/xxhash/v2 v2.1.1
 	github.com/dustin/go-humanize v1.0.0
 	github.com/k0kubun/go-ansi v0.0.0-20180517002512-3bf9e2903213
@@ -27,6 +28,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rivo/uniseg v0.2.0 // indirect
+	github.com/sirupsen/logrus v1.8.1 // indirect
 	github.com/tscholl2/siec v0.0.0-20210707234609-9bdfc483d499 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	golang.org/x/sys v0.6.0 // indirect
