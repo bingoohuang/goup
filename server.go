@@ -57,7 +57,7 @@ func ServerHandle(code, cipher string, chunkSize, limitRate uint64, paths []stri
 	f := func(w http.ResponseWriter, r *http.Request) error {
 		h := ParseHeader(r.Header.Get("Content-Gulp"))
 		if chunkSize > 0 {
-			r.Body = http.MaxBytesReader(w, r.Body, int64(chunkSize)+1024*1024) // with extra 1 MiB, for padding compatible like encryption
+			r.Body = http.MaxBytesReader(w, r.Body, int64(chunkSize*2)) // with extra 1 MiB, for padding compatible like encryption
 		}
 		if limitRate > 0 {
 			l := shapeio.WithRateLimit(float64(limitRate))
@@ -70,12 +70,17 @@ func ServerHandle(code, cipher string, chunkSize, limitRate uint64, paths []stri
 
 		switch {
 		case h.Filename != "" && r.Method == http.MethodPost:
+			// 明文上传（文件作为 Body)
 			return serveBodyAsFile(r.Body, h.Filename)
 		case h.Session != "" && h.Curve != "" && r.Method == http.MethodPost:
+			// PAKE 生成会话秘钥
 			return servePake(w, h.Session, code, h.Curve)
 		case h.Session != "" && r.URL.Path == "/" && h.Range != "" && ss.AnyOf(r.Method, http.MethodPost, http.MethodGet):
+			// 校验分块 checksum，返回 304 或 其它
+			// 分块加密上传（加密分块作为 Body)
 			return serveUpload(w, r, h.Range, h.Session, cipher, h.Checksum, h.Salt)
 		case r.URL.Path == "/" && r.Method == http.MethodGet:
+			// HTML JS 上传页面 / 服务端文件列表（Accept: application/json 时）
 			if r.Header.Get("Accept") == "application/json" {
 				return servList(w)
 			}
@@ -83,10 +88,12 @@ func ServerHandle(code, cipher string, chunkSize, limitRate uint64, paths []stri
 			_, err := w.Write(indexPage)
 			return err
 		case r.URL.Path != "/" && (r.Method == http.MethodGet || r.Method == http.MethodHead): // may be downloads
+			// 明文下载
 			if status := serveDownload(w, r, h.Session, cipher, h.Range, h.Checksum, chunkSize, paths); status > 0 {
 				w.WriteHeader(status)
 			}
 		case r.Method == http.MethodPost:
+			// 明文上传（multipart-form)
 			return NetHTTPUpload(w, r, RootDir, chunkSize)
 		default:
 			w.WriteHeader(http.StatusNotFound)
