@@ -252,9 +252,9 @@ func CreateChunkReader(fullPath string, partFrom, partTo uint64, limitRate uint6
 			reader := io.LimitReader(f, int64(partTo-partFrom))
 			size -= int64(partFrom)
 			return Wrap(reader, f), nil
-		} else {
-			size = int64(partTo - partFrom)
 		}
+
+		size = int64(partTo - partFrom)
 	}
 
 	pf := &PayloadFile{ReadCloser: f, Name: f.Name(), Size: size}
@@ -308,6 +308,7 @@ func (c chunkRange) createContentRange() string {
 
 var rangeRegexp = regexp.MustCompile(`bytes=([0-9]+)-([0-9]+)?`)
 
+// Range ...
 type Range struct {
 	startByte uint64
 	endByte   uint64

@@ -1,3 +1,4 @@
+// Package goup contains golang upload/download server and client.
 package goup
 
 import (
