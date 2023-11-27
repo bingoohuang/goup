@@ -213,7 +213,7 @@ func servList(w http.ResponseWriter) error {
 func serveDownload(w http.ResponseWriter, r *http.Request, sessionID, cipher, contentRange, checksum string, chunkSize uint64, paths []string) int {
 	urlPath := r.URL.Path
 	for _, p := range paths {
-		if strings.HasPrefix(urlPath, urlPath) {
+		if strings.HasPrefix(p, urlPath) {
 			p = p[len(urlPath):]
 			switch p[0] {
 			case ':', '=':

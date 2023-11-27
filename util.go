@@ -344,7 +344,7 @@ func parseRange(rangeHead string) (*Range, error) {
 }
 
 func parseContentRange(contentRange string) (c *chunkRange, err error) {
-	contentRange = strings.Replace(contentRange, "bytes ", "", -1)
+	contentRange = strings.ReplaceAll(contentRange, "bytes ", "")
 	fromTo := strings.Split(contentRange, "/")[0]
 	totalSizeStr := strings.Split(contentRange, "/")[1]
 	totalSize, err := strconv.ParseUint(totalSizeStr, 10, 64)

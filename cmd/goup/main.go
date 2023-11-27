@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 
 	ggcodec "github.com/bingoohuang/gg/pkg/codec"
 	"github.com/bingoohuang/gg/pkg/fla9"
@@ -104,7 +103,7 @@ func main() {
 
 func (a *Arg) processCode() {
 	if a.Code.Exists && a.Code.Val == "" {
-		pwd, err := codec.ReadPassword(os.Stdin)
+		pwd, err := codec.ReadPassword("Password")
 		if err != nil {
 			log.Printf("E! read password failed: %v", err)
 		}

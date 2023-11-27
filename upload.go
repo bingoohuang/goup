@@ -56,7 +56,7 @@ func NetHTTPUpload(w http.ResponseWriter, r *http.Request, rootDir string, limit
 	var fileSizes []string
 	for k, v := range r.MultipartForm.File {
 		index++
-		file, n, err := saveFormFile(v[0], r.URL.Path, rootDir, index, fileCount)
+		file, n, err := saveFormFile(v[0], rootDir, r.URL.Path, index, fileCount)
 		if err != nil {
 			return err
 		}
