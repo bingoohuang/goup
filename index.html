@@ -9,7 +9,7 @@
 <body>
 <form name="uploadForm">
     <div>
-        <input id="uploadInput" type="file">
+        <input id="uploadInput" type="file" name="files[]" multiple="multiple">
         selected files: <span id="fileNum">0</span>;
         total size: <span id="fileSize">0</span>
     </div>
@@ -31,8 +31,6 @@
         document.getElementById("fileNum").innerHTML = nFiles.toString()
         document.getElementById("fileSize").innerHTML = sOutput
 
-        let file = oFiles[0]
-
         // const chunkSize = 40000
 
         // for (let start = 0; start < file.size; start += chunkSize) {
@@ -49,13 +47,20 @@
         };
 
         xhr.open("POST", '/', true)
-        xhr.setRequestHeader('Content-Gulp', 'Filename=' + encodeURIComponent(file.name))
-        xhr.setRequestHeader("Content-Type", file.type)
+        // xhr.setRequestHeader('Content-Gulp', 'Filename=' + encodeURIComponent(file.name))
+        // xhr.setRequestHeader("Content-Type", file.type)
+
+        const formData = new FormData();
+        for (let nFileId = 0; nFileId < nFiles; nFileId++) {
+            let file = oFiles[nFileId]
+            formData.append(file.name, file);
+        }
+        xhr.send(formData);
 
         // Send the binary data.
         // Since a File is a Blob, we can send it directly.
         // For browser support, see: http://caniuse.com/#feat=xhr2 (most browsers, including IE 10+).
-        xhr.send(file)
+        // xhr.send(file)
 
         // Use fileReader.readAsDataURL( fileObject ), this will encode it to base64, which you can safely upload to your server.
         // const fr = new FileReader();
